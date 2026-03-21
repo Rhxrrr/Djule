@@ -1,0 +1,11 @@
+from ...components.ui import Button, Card
+
+def Page(title):
+    return (
+        <Card>
+            <h1>{title}</h1>
+            <Button variant="primary">
+                Relative import works
+            </Button>
+        </Card>
+    )

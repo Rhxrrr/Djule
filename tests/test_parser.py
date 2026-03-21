@@ -51,6 +51,14 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(root.name, "Card")
         self.assertEqual(root.children[-1].name, "Button")
 
+    def test_relative_component_import_parses_leading_dot_syntax(self):
+        module = self.parse("feature/pages/deep/09_relative_imports.djule")
+
+        self.assertEqual(module.imports, [ImportFrom(module="...components.ui", names=["Button", "Card"])])
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ComponentNode)
+        self.assertEqual(root.name, "Card")
+
     def test_children_example_parses_nested_text(self):
         module = self.parse("03_children.djule")
 

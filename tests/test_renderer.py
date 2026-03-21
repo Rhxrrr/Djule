@@ -53,6 +53,14 @@ class RendererTests(unittest.TestCase):
             '<button class="btn btn-primary">Continue</button></section>',
         )
 
+    def test_relative_import_renders_from_parent_directories(self):
+        html = self.render("feature/pages/deep/09_relative_imports.djule", props={"title": "Nested Djule"})
+        self.assertEqual(
+            html,
+            '<section class="feature-card"><h1>Nested Djule</h1>'
+            '<button class="feature-btn feature-btn-primary">Relative import works</button></section>',
+        )
+
     def test_embedded_if_else_renders_inside_markup(self):
         user = SimpleNamespace(username="Rhxrr", is_authenticated=True)
         html = self.render("05_embedded_if_else.djule", props={"user": user})

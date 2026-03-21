@@ -1,0 +1,13 @@
+def Card(children):
+    return (
+        <section class="feature-card">
+            {children}
+        </section>
+    )
+
+def Button(variant, children):
+    return (
+        <button class={f"feature-btn feature-btn-{variant}"}>
+            {children}
+        </button>
+    )

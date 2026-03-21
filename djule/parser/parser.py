@@ -79,9 +79,18 @@ class DjuleParser:
 
     def _parse_import_from(self) -> ImportFrom:
         self._consume(TokenType.FROM, "Expected 'from'")
-        module_parts = [self._consume(TokenType.NAME, "Expected module name").value]
+        relative_level = 0
         while self._match(TokenType.DOT):
-            module_parts.append(self._consume(TokenType.NAME, "Expected module name after '.'").value)
+            relative_level += 1
+
+        module_parts: list[str] = []
+        if self._check(TokenType.NAME):
+            module_parts.append(self._consume(TokenType.NAME, "Expected module name").value)
+            while self._match(TokenType.DOT):
+                module_parts.append(self._consume(TokenType.NAME, "Expected module name after '.'").value)
+        elif relative_level == 0:
+            raise self._error("Expected module name")
+
         self._consume(TokenType.IMPORT, "Expected 'import'")
 
         names = [self._consume(TokenType.NAME, "Expected import name").value]
@@ -89,7 +98,10 @@ class DjuleParser:
             names.append(self._consume(TokenType.NAME, "Expected import name after ','").value)
 
         self._consume(TokenType.NEWLINE, "Expected newline after import")
-        return ImportFrom(module=".".join(module_parts), names=names)
+        module_name = "." * relative_level
+        if module_parts:
+            module_name += ".".join(module_parts)
+        return ImportFrom(module=module_name, names=names)
 
     def _parse_component_def(self) -> ComponentDef:
         self._consume(TokenType.DEF, "Expected 'def'")

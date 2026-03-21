@@ -37,10 +37,14 @@ def Page(user, notifications):
 - use normal Python import syntax
 - components may import other components
 - imported modules and imported components are allowed at the top of the file
+- absolute imports resolve from the Djule search root for the current file
+- relative imports use leading dots: `.` for current directory, `..` for parent, `...` for grandparent
 
 ```html
 from components.ui import Button, Card
 from components.layout import PageShell
+from ..components.ui import Button
+from ...components.ui import Card
 ```
 
 ## Components

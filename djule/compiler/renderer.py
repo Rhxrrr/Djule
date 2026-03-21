@@ -384,6 +384,9 @@ class DjuleRenderer:
         )
 
     def _resolve_module_path(self, module_name: str) -> Path:
+        if module_name.startswith("."):
+            return self._resolve_relative_module_path(module_name)
+
         module_parts = module_name.split(".")
         candidates: list[Path] = []
 
@@ -396,6 +399,34 @@ class DjuleRenderer:
                 return candidate.resolve()
 
         searched_paths = ", ".join(str(path) for path in candidates) or "<no search paths configured>"
+        raise RendererError(f"Could not resolve imported module '{module_name}'. Searched: {searched_paths}")
+
+    def _resolve_relative_module_path(self, module_name: str) -> Path:
+        if self.module_path is None:
+            raise RendererError(
+                f"Could not resolve relative import '{module_name}' without a source file path"
+            )
+
+        leading_dots = len(module_name) - len(module_name.lstrip("."))
+        remainder = module_name[leading_dots:]
+        module_parts = remainder.split(".") if remainder else []
+
+        base_path = self.module_path.parent
+        for _ in range(max(leading_dots - 1, 0)):
+            base_path = base_path.parent
+
+        candidates = []
+        if module_parts:
+            candidates.append(base_path.joinpath(*module_parts).with_suffix(".djule"))
+            candidates.append(base_path.joinpath(*module_parts, "__init__.djule"))
+        else:
+            candidates.append(base_path / "__init__.djule")
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+
+        searched_paths = ", ".join(str(path) for path in candidates)
         raise RendererError(f"Could not resolve imported module '{module_name}'. Searched: {searched_paths}")
 
     @staticmethod
