@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Djule Syntax Preview</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #111827;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --keyword: #c586c0;
+        --function: #dcdcaa;
+        --identifier: #9cdcfe;
+        --string: #ce9178;
+        --number: #b5cea8;
+        --operator: #d4d4d4;
+        --tag-html: #569cd6;
+        --tag-component: #4EC9B0;
+        --attr: #92c5f8;
+        --brace: #ffd700;
+        --punct: #808080;
+        --plain-punct: #e5e7eb;
+        --paren-a: #ffd700;
+        --paren-b: #c586c0;
+        --square-a: #ffd700;
+        --square-b: #c586c0;
+        --import-class: #4EC9B0;
+        --import-function: #dcdcaa;
+        --import-component: #4EC9B0;
+        --comment: #64748b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+        background:
+          radial-gradient(circle at top left, rgba(96, 165, 250, 0.18), transparent 30%),
+          radial-gradient(circle at bottom right, rgba(34, 211, 238, 0.14), transparent 25%),
+          var(--bg);
+        color: var(--text);
+        font: 16px/1.55 "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      .title {
+        margin: 0 0 10px;
+        font-size: 28px;
+      }
+
+      .subtitle {
+        margin: 0 0 24px;
+        color: var(--muted);
+      }
+
+      .codeblock {
+        overflow: auto;
+        padding: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.98));
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre;
+      }
+
+      .kw { color: var(--keyword); }
+      .kw-def { color: var(--tag-html); }
+      .fn { color: var(--function); }
+      .id { color: var(--identifier); }
+      .id-white { color: var(--text); }
+      .text { color: var(--text); }
+      .str { color: var(--string); }
+      .num { color: var(--number); }
+      .op { color: var(--operator); }
+      .tag-html { color: var(--tag-html); }
+      .tag-component { color: var(--tag-component); }
+      .prefix { color: var(--tag-html); }
+      .attr { color: var(--attr); }
+      .brace { color: var(--brace); }
+      .punct { color: var(--punct); }
+      .punct-white { color: var(--plain-punct); }
+      .paren-a { color: var(--paren-a); }
+      .paren-b { color: var(--paren-b); }
+      .square-a { color: var(--square-a); }
+      .square-b { color: var(--square-b); }
+      .import-class { color: var(--import-class); }
+      .import-function { color: var(--import-function); }
+      .import-component { color: var(--import-component); }
+      .comment { color: var(--comment); font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 class="title">Djule Syntax Preview</h1>
+      <p class="subtitle">Manually colored hybrid Python + component markup preview.</p>
+      <div class="codeblock">
+        <pre><span class="kw">from</span> <span class="import-class">components</span><span class="punct-white">.</span><span class="import-class">ui</span> <span class="kw">import</span> <span class="import-component">Button</span><span class="punct-white">,</span> <span class="import-component">Card</span>
+
+<span class="kw-def">def</span> <span class="fn">Page</span><span class="paren-a">(</span><span class="id">user</span><span class="punct-white">,</span> <span class="id">notifications</span><span class="paren-a">)</span><span class="punct-white">:</span>
+    <span class="kw">return</span> <span class="paren-a">(</span>
+        <span class="punct">&lt;</span><span class="tag-component">Card</span><span class="punct">&gt;</span>
+            <span class="punct">&lt;</span><span class="tag-html">h1</span><span class="punct">&gt;</span>
+                <span class="brace">{</span>
+                    <span class="kw">if</span> <span class="id">user</span><span class="punct-white">.</span><span class="id">is_authenticated</span><span class="punct-white">:</span>
+                        <span class="prefix">f</span><span class="str">"Hello </span><span class="brace">{</span><span class="id">user</span><span class="punct-white">.</span><span class="id">username</span><span class="brace">}</span><span class="str">"</span>
+                    <span class="kw">else</span><span class="punct-white">:</span>
+                        <span class="str">"Hello guest"</span>
+                <span class="brace">}</span>
+            <span class="punct">&lt;/</span><span class="tag-html">h1</span><span class="punct">&gt;</span>
+
+            <span class="brace">{</span>
+                <span class="id">unread_count</span> <span class="op">=</span> <span class="num">0</span>
+
+                <span class="kw">for</span> <span class="id">n</span> <span class="kw">in</span> <span class="id">notifications</span><span class="punct-white">:</span>
+                    <span class="kw">if</span> <span class="kw">not</span> <span class="id">n</span><span class="punct-white">.</span><span class="id">read</span><span class="punct-white">:</span>
+                        <span class="id">unread_count</span> <span class="op">+=</span> <span class="num">1</span>
+
+                <span class="kw">if</span> <span class="id">unread_count</span> <span class="op">&gt;</span> <span class="num">0</span><span class="punct-white">:</span>
+                    <span class="punct">&lt;</span><span class="tag-html">p</span><span class="punct">&gt;</span>
+                        <span class="text">You have </span>
+                        <span class="brace">{</span><span class="id">unread_count</span><span class="brace">}</span>
+                        <span class="text"> unread notifications.</span>
+                    <span class="punct">&lt;/</span><span class="tag-html">p</span><span class="punct">&gt;</span>
+                <span class="kw">else</span><span class="punct-white">:</span>
+                    <span class="punct">&lt;</span><span class="tag-html">p</span><span class="punct">&gt;</span><span class="text">No new notifications.</span><span class="punct">&lt;/</span><span class="tag-html">p</span><span class="punct">&gt;</span>
+            <span class="brace">}</span>
+
+            <span class="punct">&lt;</span><span class="tag-html">div</span> <span class="attr">class</span><span class="op">=</span><span class="str">"actions"</span><span class="punct">&gt;</span>
+                <span class="brace">{</span>
+                    <span class="kw">for</span> <span class="id">i</span> <span class="kw">in</span> <span class="fn">range</span><span class="paren-a">(</span><span class="num">3</span><span class="paren-a">)</span><span class="punct-white">:</span>
+                        <span class="kw">if</span> <span class="id">user</span><span class="punct-white">.</span><span class="id">is_authenticated</span><span class="punct-white">:</span>
+                            <span class="punct">&lt;</span><span class="tag-component">Button</span> <span class="attr">variant</span><span class="op">=</span><span class="str">"primary"</span><span class="punct">&gt;</span>
+                                <span class="text">Action </span><span class="brace">{</span><span class="id">i</span> <span class="op">+</span> <span class="num">1</span><span class="brace">}</span>
+                            <span class="punct">&lt;/</span><span class="tag-component">Button</span><span class="punct">&gt;</span>
+                        <span class="kw">else</span><span class="punct-white">:</span>
+                            <span class="punct">&lt;</span><span class="tag-component">Button</span> <span class="attr">variant</span><span class="op">=</span><span class="str">"secondary"</span><span class="punct">&gt;</span>
+                                <span class="text">Action </span><span class="brace">{</span><span class="id">i</span> <span class="op">+</span> <span class="num">1</span><span class="brace">}</span>
+                            <span class="punct">&lt;/</span><span class="tag-component">Button</span><span class="punct">&gt;</span>
+                <span class="brace">}</span>
+            <span class="punct">&lt;/</span><span class="tag-html">div</span><span class="punct">&gt;</span>
+        <span class="punct">&lt;/</span><span class="tag-component">Card</span><span class="punct">&gt;</span>
+    <span class="paren-a">)</span></pre>
+      </div>
+    </div>
+  </body>
+</html>
