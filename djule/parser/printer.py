@@ -3,8 +3,14 @@ from __future__ import annotations
 from .ast_nodes import (
     AssignStmt,
     AttributeNode,
+    BlockItem,
+    BlockNode,
     ComponentDef,
     ComponentNode,
+    EmbeddedAssignNode,
+    EmbeddedExprNode,
+    EmbeddedForNode,
+    EmbeddedIfNode,
     ElementNode,
     ExprStmt,
     ExpressionNode,
@@ -101,6 +107,9 @@ class DjulePrinter:
         if isinstance(node, ExpressionNode):
             return [f"{prefix}{{{node.source}}}"]
 
+        if isinstance(node, BlockNode):
+            return self._print_embedded_block(node, indent)
+
         if isinstance(node, ElementNode):
             return self._print_tag_block(node.tag, node.attributes, node.children, indent)
 
@@ -108,6 +117,14 @@ class DjulePrinter:
             return self._print_tag_block(node.name, node.attributes, node.children, indent)
 
         raise TypeError(f"Unsupported markup node: {type(node)!r}")
+
+    def _print_embedded_block(self, node: BlockNode, indent: int) -> list[str]:
+        prefix = "    " * indent
+        lines = [f"{prefix}{{"]
+        for statement in node.statements:
+            lines.extend(self._print_block_item(statement, indent + 1))
+        lines.append(f"{prefix}}}")
+        return lines
 
     def _print_tag_block(
         self,
@@ -148,6 +165,8 @@ class DjulePrinter:
             return node.value
         if isinstance(node, ExpressionNode):
             return f"{{{node.source}}}"
+        if isinstance(node, BlockNode):
+            raise TypeError("Embedded blocks cannot be printed inline")
         if isinstance(node, ElementNode):
             open_tag = self._format_open_tag(node.tag, node.attributes)
             children = "".join(self._print_inline_markup(child) for child in node.children)
@@ -157,6 +176,38 @@ class DjulePrinter:
             children = "".join(self._print_inline_markup(child) for child in node.children)
             return f"{open_tag}{children}</{node.name}>"
         raise TypeError(f"Unsupported markup node: {type(node)!r}")
+
+    def _print_block_item(self, item: BlockItem, indent: int) -> list[str]:
+        prefix = "    " * indent
+
+        if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+            return self._print_markup_block(item, indent)
+
+        if isinstance(item, EmbeddedExprNode):
+            return [f"{prefix}{item.source}"]
+
+        if isinstance(item, EmbeddedAssignNode):
+            if isinstance(item.value, PythonExpr):
+                return [f"{prefix}{item.target} = {item.value.source}"]
+            return [f"{prefix}{item.target} = {self._print_inline_markup(item.value)}"]
+
+        if isinstance(item, EmbeddedIfNode):
+            lines = [f"{prefix}if {item.test.source}:"]
+            for child in item.body:
+                lines.extend(self._print_block_item(child, indent + 1))
+            if item.orelse:
+                lines.append(f"{prefix}else:")
+                for child in item.orelse:
+                    lines.extend(self._print_block_item(child, indent + 1))
+            return lines
+
+        if isinstance(item, EmbeddedForNode):
+            lines = [f"{prefix}for {item.target} in {item.iter.source}:"]
+            for child in item.body:
+                lines.extend(self._print_block_item(child, indent + 1))
+            return lines
+
+        raise TypeError(f"Unsupported embedded block item: {type(item)!r}")
 
     @staticmethod
     def _is_inline_children(children: list[MarkupNode]) -> bool:

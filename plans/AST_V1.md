@@ -216,6 +216,24 @@ Fields:
 - `target`: variable name
 - `value`: Python expression or markup node
 
+### EmbeddedExprNode
+Represents a bare Python expression line inside an embedded block.
+
+Fields:
+- `type`: `"EmbeddedExprNode"`
+- `source`: original expression text
+
+Example:
+
+```python
+{
+    if user.is_authenticated:
+        f"Hello {user.username}"
+    else:
+        "Hello guest"
+}
+```
+
 ## Expression Handling
 
 For v1, expressions can be stored as source text instead of a full Python AST.
@@ -242,7 +260,7 @@ This keeps the parser simpler and lets the compiler or later parser stage handle
 - `ComponentDef` contains Python statements plus one `ReturnStmt`
 - `ReturnStmt` points to one markup root
 - markup roots may contain `TextNode`, `ExpressionNode`, `ElementNode`, `ComponentNode`, and `BlockNode`
-- `BlockNode` contains embedded statements like `EmbeddedIfNode`, `EmbeddedForNode`, and `EmbeddedAssignNode`
+- `BlockNode` contains embedded statements like `EmbeddedIfNode`, `EmbeddedForNode`, `EmbeddedAssignNode`, and `EmbeddedExprNode`
 
 ## V1 Parser Priority
 Build the AST in this order:

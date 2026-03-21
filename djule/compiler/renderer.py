@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -9,9 +10,15 @@ from typing import Callable, Mapping, Union
 from djule.parser.ast_nodes import (
     AssignStmt,
     AttributeNode,
+    BlockItem,
+    BlockNode,
     ComponentDef,
     ComponentNode,
     ElementNode,
+    EmbeddedAssignNode,
+    EmbeddedExprNode,
+    EmbeddedForNode,
+    EmbeddedIfNode,
     ExprStmt,
     ExpressionNode,
     ForStmt,
@@ -143,6 +150,8 @@ class DjuleRenderer:
         if component is None:
             raise RendererError(f"Unknown component '{component_name}'")
 
+        self._validate_component_props(component_name, component, props)
+
         if isinstance(component, ComponentDef):
             return self._render_component_def(component, props)
 
@@ -153,6 +162,11 @@ class DjuleRenderer:
 
     def _render_component_def(self, component: ComponentDef, props: dict[str, object]) -> SafeHtml:
         env = dict(props)
+
+        if "children" in env and "children" not in component.params:
+            raise RendererError(
+                f"Component '{component.name}' received nested content, but it does not declare a 'children' prop"
+            )
 
         if "children" in component.params and "children" not in env:
             env["children"] = SafeHtml("")
@@ -205,6 +219,9 @@ class DjuleRenderer:
         if isinstance(node, ExpressionNode):
             return self._render_expression_value(self._eval_python_expr(node.source, env))
 
+        if isinstance(node, BlockNode):
+            return self._render_block_node(node, env)
+
         if isinstance(node, ElementNode):
             return self._render_element_node(node, env)
 
@@ -213,6 +230,11 @@ class DjuleRenderer:
 
         raise RendererError(f"Unsupported markup node: {type(node)!r}")
 
+    def _render_block_node(self, node: BlockNode, env: dict[str, object]) -> SafeHtml:
+        fragments: list[str] = []
+        self._execute_block_items(node.statements, env, fragments)
+        return SafeHtml("".join(fragments))
+
     def _render_element_node(self, node: ElementNode, env: dict[str, object]) -> SafeHtml:
         rendered_attributes = self._render_attributes(node.attributes, env)
         rendered_children = "".join(self._render_markup_node(child, env) for child in node.children)
@@ -220,9 +242,17 @@ class DjuleRenderer:
 
     def _render_component_node(self, node: ComponentNode, env: dict[str, object]) -> SafeHtml:
         props = self._resolve_props(node.attributes, env)
+        component = self._resolve_component(node.name)
+        if component is None:
+            raise RendererError(f"Unknown component '{node.name}'")
+
         if node.children:
+            if not self._component_accepts_children(component):
+                raise RendererError(
+                    f"Component '{node.name}' was used with nested content, but it does not declare a 'children' prop"
+                )
             props["children"] = SafeHtml("".join(self._render_markup_node(child, env) for child in node.children))
-        return self._render_component_by_name(node.name, props)
+        return self._render_resolved_component(node.name, component, props)
 
     def _render_attributes(self, attributes: list[AttributeNode], env: dict[str, object]) -> str:
         parts = []
@@ -262,6 +292,50 @@ class DjuleRenderer:
             return SafeHtml("".join(rendered_items))
 
         return SafeHtml(escape(str(value)))
+
+    def _execute_block_items(
+        self,
+        items: list[BlockItem],
+        env: dict[str, object],
+        fragments: list[str],
+    ) -> None:
+        for item in items:
+            self._execute_block_item(item, env, fragments)
+
+    def _execute_block_item(
+        self,
+        item: BlockItem,
+        env: dict[str, object],
+        fragments: list[str],
+    ) -> None:
+        if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+            fragments.append(str(self._render_markup_node(item, env)))
+            return
+
+        if isinstance(item, EmbeddedExprNode):
+            fragments.append(str(self._render_expression_value(self._eval_python_expr(item.source, env))))
+            return
+
+        if isinstance(item, EmbeddedAssignNode):
+            if isinstance(item.value, PythonExpr):
+                env[item.target] = self._eval_python_expr(item.value.source, env)
+            else:
+                env[item.target] = self._render_markup_node(item.value, env)
+            return
+
+        if isinstance(item, EmbeddedIfNode):
+            branch = item.body if self._eval_python_expr(item.test.source, env) else item.orelse
+            self._execute_block_items(branch, env, fragments)
+            return
+
+        if isinstance(item, EmbeddedForNode):
+            iterable = self._eval_python_expr(item.iter.source, env)
+            for value in iterable:
+                env[item.target] = value
+                self._execute_block_items(item.body, env, fragments)
+            return
+
+        raise RendererError(f"Unsupported embedded block item: {type(item)!r}")
 
     def _eval_python_expr(self, source: str, env: dict[str, object]) -> object:
         scope = {"__builtins__": self.builtins, **env}
@@ -333,3 +407,46 @@ class DjuleRenderer:
             return renderer._render_component_by_name(component_name, dict(props))
 
         return render_imported_component
+
+    def _render_resolved_component(
+        self,
+        component_name: str,
+        component: ExternalComponent | Callable[..., SafeHtml],
+        props: dict[str, object],
+    ) -> SafeHtml:
+        self._validate_component_props(component_name, component, props)
+
+        if isinstance(component, ComponentDef):
+            return self._render_component_def(component, props)
+
+        result = component(**props)
+        if isinstance(result, SafeHtml):
+            return result
+        return SafeHtml(str(result))
+
+    def _validate_component_props(
+        self,
+        component_name: str,
+        component: ExternalComponent | Callable[..., SafeHtml],
+        props: dict[str, object],
+    ) -> None:
+        if "children" in props and not self._component_accepts_children(component):
+            raise RendererError(
+                f"Component '{component_name}' received nested content, but it does not declare a 'children' prop"
+            )
+
+    @staticmethod
+    def _component_accepts_children(component: ExternalComponent | Callable[..., SafeHtml]) -> bool:
+        if isinstance(component, ComponentDef):
+            return "children" in component.params
+
+        try:
+            signature = inspect.signature(component)
+        except (TypeError, ValueError):
+            return False
+
+        for parameter in signature.parameters.values():
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                return True
+
+        return "children" in signature.parameters

@@ -37,6 +37,12 @@ class ExpressionNode:
 
 
 @dataclass(frozen=True)
+class EmbeddedExprNode:
+    source: str
+    type: str = field(init=False, default="EmbeddedExprNode")
+
+
+@dataclass(frozen=True)
 class ElementNode:
     tag: str
     attributes: list[AttributeNode]
@@ -52,14 +58,10 @@ class ComponentNode:
     type: str = field(init=False, default="ComponentNode")
 
 
-MarkupNode = Union[ElementNode, ComponentNode, TextNode, ExpressionNode]
-AssignValue = Union[PythonExpr, MarkupNode]
-
-
 @dataclass(frozen=True)
 class AssignStmt:
     target: str
-    value: AssignValue
+    value: "AssignValue"
     type: str = field(init=False, default="AssignStmt")
 
 
@@ -90,7 +92,7 @@ Statement = Union[AssignStmt, ExprStmt, IfStmt, ForStmt]
 
 @dataclass(frozen=True)
 class ReturnStmt:
-    value: MarkupNode
+    value: "MarkupNode"
     type: str = field(init=False, default="ReturnStmt")
 
 
@@ -101,6 +103,40 @@ class ComponentDef:
     body: list[Statement]
     return_stmt: ReturnStmt
     type: str = field(init=False, default="ComponentDef")
+
+
+@dataclass(frozen=True)
+class EmbeddedAssignNode:
+    target: str
+    value: "AssignValue"
+    type: str = field(init=False, default="EmbeddedAssignNode")
+
+
+@dataclass(frozen=True)
+class EmbeddedIfNode:
+    test: PythonExpr
+    body: list["BlockItem"]
+    orelse: list["BlockItem"]
+    type: str = field(init=False, default="EmbeddedIfNode")
+
+
+@dataclass(frozen=True)
+class EmbeddedForNode:
+    target: str
+    iter: PythonExpr
+    body: list["BlockItem"]
+    type: str = field(init=False, default="EmbeddedForNode")
+
+
+@dataclass(frozen=True)
+class BlockNode:
+    statements: list["BlockItem"]
+    type: str = field(init=False, default="BlockNode")
+
+
+MarkupNode = Union[ElementNode, ComponentNode, TextNode, ExpressionNode, BlockNode]
+AssignValue = Union[PythonExpr, MarkupNode]
+BlockItem = Union[MarkupNode, EmbeddedAssignNode, EmbeddedIfNode, EmbeddedForNode, EmbeddedExprNode]
 
 
 @dataclass(frozen=True)

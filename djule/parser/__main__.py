@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from pprint import pprint
+from types import SimpleNamespace
 
 from djule.compiler import DjuleRenderer, RendererError
 
@@ -19,6 +20,14 @@ def _usage() -> str:
         "[--component <name>] [--props '<json-object>']\n"
         "Aliases: lexer=tokens, parser=source"
     )
+
+
+def _coerce_cli_value(value: object) -> object:
+    if isinstance(value, dict):
+        return SimpleNamespace(**{key: _coerce_cli_value(inner) for key, inner in value.items()})
+    if isinstance(value, list):
+        return [_coerce_cli_value(item) for item in value]
+    return value
 
 
 def main() -> int:
@@ -58,7 +67,7 @@ def main() -> int:
             if not isinstance(loaded, dict):
                 print("--props must be a JSON object")
                 return 1
-            props = loaded
+            props = {key: _coerce_cli_value(value) for key, value in loaded.items()}
         else:
             print(f"Unknown option: {option}")
             print(_usage())

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
+import re
 
 from .ast_nodes import (
     AssignStmt,
     AttributeNode,
+    BlockItem,
+    BlockNode,
     ComponentDef,
     ComponentNode,
+    EmbeddedAssignNode,
+    EmbeddedExprNode,
+    EmbeddedForNode,
+    EmbeddedIfNode,
     ElementNode,
     ExprStmt,
     ExpressionNode,
@@ -199,7 +206,10 @@ class DjuleParser:
         if self._check(TokenType.TEXT):
             return TextNode(value=self._advance().value)
         if self._check(TokenType.EXPR):
-            return ExpressionNode(source=self._advance().value)
+            source = self._advance().value
+            if self._is_embedded_block_source(source):
+                return self._parse_embedded_block_source(source)
+            return ExpressionNode(source=source)
         raise self._error("Expected markup node")
 
     def _parse_element_node(self) -> ElementNode:
@@ -214,6 +224,11 @@ class DjuleParser:
     def _parse_component_node(self) -> ComponentNode:
         open_token = self._consume(TokenType.COMPONENT_TAG_OPEN, "Expected component opening tag")
         attributes = self._parse_attributes()
+        for attribute in attributes:
+            if attribute.name == "children":
+                raise self._error(
+                    "The 'children' prop is reserved for nested component content; use content between the tags instead"
+                )
         self._consume(TokenType.TAG_END, "Expected '>' after opening component tag")
         children = self._parse_children_until(TokenType.COMPONENT_TAG_CLOSE, open_token.value)
         self._consume(TokenType.COMPONENT_TAG_CLOSE, f"Expected closing tag </{open_token.value}>")
@@ -247,6 +262,87 @@ class DjuleParser:
         if not tokens:
             raise self._error("Expected Python expression")
         return PythonExpr(source=self._tokens_to_source(tokens))
+
+    def _parse_embedded_block_source(self, source: str) -> BlockNode:
+        normalized_source = self._normalize_embedded_block_source(source)
+        parser = DjuleParser.from_source(normalized_source)
+        return parser.parse_embedded_block()
+
+    def parse_embedded_block(self) -> BlockNode:
+        self._skip_newlines()
+        statements = self._parse_block_items_until({TokenType.EOF})
+        self._consume(TokenType.EOF, "Expected end of embedded block")
+        return BlockNode(statements=statements)
+
+    def _parse_block_items_until(self, stop_types: set[TokenType]) -> list[BlockItem]:
+        items: list[BlockItem] = []
+        self._skip_newlines()
+        while not self._check_any(stop_types) and not self._check(TokenType.EOF):
+            items.append(self._parse_block_item())
+            self._skip_newlines()
+        return items
+
+    def _parse_block_item(self) -> BlockItem:
+        if self._check(TokenType.IF):
+            return self._parse_embedded_if_node()
+        if self._check(TokenType.FOR):
+            return self._parse_embedded_for_node()
+        if self._check(TokenType.NAME) and self._check_next(TokenType.EQUALS):
+            return self._parse_embedded_assign_node()
+        if self._starts_markup_node():
+            return self._parse_markup_node()
+        return self._parse_embedded_expr_node()
+
+    def _parse_embedded_assign_node(self) -> EmbeddedAssignNode:
+        target = self._consume(TokenType.NAME, "Expected assignment target").value
+        self._consume(TokenType.EQUALS, "Expected '=' in assignment")
+
+        if self._starts_markup_node():
+            value = self._parse_markup_node()
+        else:
+            value = self._parse_python_expr_until(TokenType.NEWLINE)
+
+        self._consume(TokenType.NEWLINE, "Expected newline after embedded assignment")
+        return EmbeddedAssignNode(target=target, value=value)
+
+    def _parse_embedded_if_node(self) -> EmbeddedIfNode:
+        self._consume(TokenType.IF, "Expected 'if'")
+        test = self._parse_python_expr_until(TokenType.COLON)
+        self._consume(TokenType.COLON, "Expected ':' after if condition")
+        self._consume(TokenType.NEWLINE, "Expected newline after if condition")
+        self._consume(TokenType.INDENT, "Expected indented embedded if body")
+        body = self._parse_embedded_block_items()
+
+        orelse: list[BlockItem] = []
+        self._skip_newlines()
+        if self._match(TokenType.ELSE):
+            self._consume(TokenType.COLON, "Expected ':' after else")
+            self._consume(TokenType.NEWLINE, "Expected newline after else")
+            self._consume(TokenType.INDENT, "Expected indented embedded else body")
+            orelse = self._parse_embedded_block_items()
+
+        return EmbeddedIfNode(test=test, body=body, orelse=orelse)
+
+    def _parse_embedded_for_node(self) -> EmbeddedForNode:
+        self._consume(TokenType.FOR, "Expected 'for'")
+        target = self._consume(TokenType.NAME, "Expected loop variable").value
+        self._consume(TokenType.IN, "Expected 'in' in embedded for loop")
+        iter_expr = self._parse_python_expr_until(TokenType.COLON)
+        self._consume(TokenType.COLON, "Expected ':' after embedded for loop")
+        self._consume(TokenType.NEWLINE, "Expected newline after embedded for loop")
+        self._consume(TokenType.INDENT, "Expected indented embedded for body")
+        body = self._parse_embedded_block_items()
+        return EmbeddedForNode(target=target, iter=iter_expr, body=body)
+
+    def _parse_embedded_expr_node(self) -> EmbeddedExprNode:
+        expr = self._parse_python_expr_until(TokenType.NEWLINE)
+        self._consume(TokenType.NEWLINE, "Expected newline after embedded expression")
+        return EmbeddedExprNode(source=expr.source)
+
+    def _parse_embedded_block_items(self) -> list[BlockItem]:
+        items = self._parse_block_items_until({TokenType.DEDENT})
+        self._consume(TokenType.DEDENT, "Expected end of embedded block")
+        return items
 
     def _collect_tokens_until(self, stop_types: set[TokenType]) -> list[Token]:
         tokens: list[Token] = []
@@ -322,6 +418,67 @@ class DjuleParser:
 
         return "".join(parts)
 
+    def _starts_markup_node(self) -> bool:
+        return self._check_any({TokenType.HTML_TAG_OPEN, TokenType.COMPONENT_TAG_OPEN, TokenType.TEXT, TokenType.EXPR})
+
+    @staticmethod
+    def _is_embedded_block_source(source: str) -> bool:
+        stripped = source.strip()
+        if "\n" not in stripped:
+            return False
+        if stripped.startswith("if ") or stripped.startswith("for "):
+            return True
+        first_line = stripped.splitlines()[0]
+        return "=" in first_line and "==" not in first_line and "!=" not in first_line
+
+    @staticmethod
+    def _normalize_embedded_block_source(source: str) -> str:
+        lines = source.strip("\n").splitlines()
+        if not lines:
+            return ""
+        if len(lines) == 1:
+            return lines[0].strip()
+
+        first_line = lines[0].strip()
+        other_lines = lines[1:]
+        base_indent = DjuleParser._infer_embedded_base_indent(other_lines)
+
+        normalized_lines = [first_line]
+        for line in other_lines:
+            if not line.strip():
+                normalized_lines.append("")
+                continue
+
+            indent = len(line) - len(line.lstrip(" "))
+            adjusted_indent = max(indent - base_indent, 0)
+            normalized_lines.append(f"{' ' * adjusted_indent}{line.lstrip(' ')}")
+
+        return "\n".join(normalized_lines)
+
+    @staticmethod
+    def _infer_embedded_base_indent(lines: list[str]) -> int:
+        indents = [
+            len(line) - len(line.lstrip(" "))
+            for line in lines
+            if line.strip()
+        ]
+        if not indents:
+            return 0
+
+        top_level_pattern = re.compile(r"^(if |for |else:|elif |[A-Za-z_]\w*\s*=)")
+        candidate_indents = []
+        for line in lines:
+            stripped = line.lstrip(" ")
+            if not stripped:
+                continue
+            if top_level_pattern.match(stripped):
+                candidate_indents.append(len(line) - len(stripped))
+
+        if candidate_indents:
+            return min(candidate_indents)
+
+        return max(min(indents) - 4, 0)
+
     def _skip_newlines(self) -> None:
         while self._match(TokenType.NEWLINE):
             pass
@@ -334,6 +491,9 @@ class DjuleParser:
 
     def _check(self, token_type: TokenType) -> bool:
         return self._peek().type == token_type
+
+    def _check_any(self, token_types: set[TokenType]) -> bool:
+        return self._peek().type in token_types
 
     def _check_next(self, token_type: TokenType) -> bool:
         return self._peek(1).type == token_type

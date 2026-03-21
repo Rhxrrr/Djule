@@ -48,6 +48,9 @@ from components.layout import PageShell
 - component names should be PascalCase
 - component inputs are props
 - nested content is passed through the reserved prop name `children`
+- components that wrap nested content should declare a `children` parameter
+- component calls must not pass `children=` in the opening tag
+- if nested content is provided to a component that does not declare `children`, Djule should raise an error
 - components may render HTML tags or other components
 - child content is passed between opening and closing component tags
 

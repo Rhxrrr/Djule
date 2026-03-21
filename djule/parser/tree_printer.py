@@ -3,8 +3,13 @@ from __future__ import annotations
 from .ast_nodes import (
     AssignStmt,
     AttributeNode,
+    BlockNode,
     ComponentDef,
     ComponentNode,
+    EmbeddedAssignNode,
+    EmbeddedExprNode,
+    EmbeddedForNode,
+    EmbeddedIfNode,
     ElementNode,
     ExprStmt,
     ExpressionNode,
@@ -116,11 +121,42 @@ class DjuleTreePrinter:
             self._render_named_children(lines, child_prefix, children)
             return
 
+        if isinstance(node, BlockNode):
+            self._render_named_children(lines, child_prefix, [("statements", node.statements)])
+            return
+
+        if isinstance(node, EmbeddedAssignNode):
+            self._render_named_children(lines, child_prefix, [("value", node.value)])
+            return
+
+        if isinstance(node, EmbeddedIfNode):
+            self._render_named_children(
+                lines,
+                child_prefix,
+                [
+                    ("test", node.test),
+                    ("body", node.body),
+                    ("else", node.orelse),
+                ],
+            )
+            return
+
+        if isinstance(node, EmbeddedForNode):
+            self._render_named_children(
+                lines,
+                child_prefix,
+                [
+                    ("iter", node.iter),
+                    ("body", node.body),
+                ],
+            )
+            return
+
         if isinstance(node, AttributeNode):
             self._render_named_children(lines, child_prefix, [("value", node.value)])
             return
 
-        if isinstance(node, (PythonExpr, TextNode, ExpressionNode)):
+        if isinstance(node, (PythonExpr, TextNode, ExpressionNode, EmbeddedExprNode)):
             return
 
         raise TypeError(f"Unsupported AST node for tree printing: {type(node)!r}")
@@ -147,6 +183,14 @@ class DjuleTreePrinter:
             return f"ElementNode <{node.tag}>"
         if isinstance(node, ComponentNode):
             return f"ComponentNode <{node.name}>"
+        if isinstance(node, BlockNode):
+            return "BlockNode"
+        if isinstance(node, EmbeddedAssignNode):
+            return f"EmbeddedAssignNode target={node.target}"
+        if isinstance(node, EmbeddedIfNode):
+            return "EmbeddedIfNode"
+        if isinstance(node, EmbeddedForNode):
+            return f"EmbeddedForNode target={node.target}"
         if isinstance(node, AttributeNode):
             return f"AttributeNode {node.name}"
         if isinstance(node, PythonExpr):
@@ -155,6 +199,8 @@ class DjuleTreePrinter:
             return f"TextNode: {node.value!r}"
         if isinstance(node, ExpressionNode):
             return f"ExpressionNode: {{{node.source}}}"
+        if isinstance(node, EmbeddedExprNode):
+            return f"EmbeddedExprNode: {node.source}"
         raise TypeError(f"Unsupported AST node: {type(node)!r}")
 
     @staticmethod

@@ -31,6 +31,13 @@ class TreePrinterTests(unittest.TestCase):
         self.assertIn("ElementNode <p>", tree)
         self.assertIn("ComponentNode <Button>", tree)
 
+    def test_embedded_logic_tree_includes_block_nodes(self):
+        tree = self.render_tree("05_embedded_if_else.djule")
+
+        self.assertIn("BlockNode", tree)
+        self.assertIn("EmbeddedIfNode", tree)
+        self.assertIn("EmbeddedExprNode: f\"Hello {user.username}\"", tree)
+
 
 if __name__ == "__main__":
     unittest.main()

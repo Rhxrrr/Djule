@@ -53,6 +53,26 @@ class RendererTests(unittest.TestCase):
             '<button class="btn btn-primary">Continue</button></section>',
         )
 
+    def test_embedded_if_else_renders_inside_markup(self):
+        user = SimpleNamespace(username="Rhxrr", is_authenticated=True)
+        html = self.render("05_embedded_if_else.djule", props={"user": user})
+        self.assertEqual(
+            html,
+            '<section class="card"><h1>Hello Rhxrr</h1><p>Your account is active.</p></section>',
+        )
+
+    def test_embedded_for_renders_repeated_component_markup(self):
+        user = SimpleNamespace(username="Rhxrr", is_authenticated=True)
+        html = self.render("06_embedded_for.djule", props={"user": user})
+        self.assertEqual(
+            html,
+            '<section class="card"><h1>Quick actions</h1><div class="actions">'
+            '<button class="btn btn-primary">Action 1</button>'
+            '<button class="btn btn-primary">Action 2</button>'
+            '<button class="btn btn-primary">Action 3</button>'
+            "</div></section>",
+        )
+
     def test_logic_above_return_renders_imported_components_automatically(self):
         user = SimpleNamespace(username="Rhxrr", is_authenticated=True)
         notifications = [
@@ -78,6 +98,39 @@ class RendererTests(unittest.TestCase):
             '<div class="card"><h1>Hello Djule</h1><p>Imported components should feel natural in Djule.</p>'
             '<button data-variant="primary">Continue</button></div>',
         )
+
+    def test_request_props_example_renders_with_nested_imported_layout(self):
+        user = SimpleNamespace(username="Rhxrr")
+        notifications = [SimpleNamespace(id=1), SimpleNamespace(id=2)]
+        team = SimpleNamespace(name="Core")
+        html = self.render(
+            "08_django_request_props.djule",
+            props={"user": user, "notifications": notifications, "team": team},
+        )
+        self.assertEqual(
+            html,
+            '<div class="page-shell"><header class="page-header"><h2>Core</h2><span>Rhxrr</span></header>'
+            '<main class="page-content"><h1>Hello Rhxrr</h1><p>You are viewing the Core dashboard.</p>'
+            '<p>You have 2 notifications.</p></main></div>',
+        )
+
+    def test_nested_content_requires_children_param(self):
+        source = """
+def Icon(name):
+    return (
+        <span>{name}</span>
+    )
+
+def Page():
+    return (
+        <Icon name="search">
+            Extra
+        </Icon>
+    )
+"""
+        renderer = DjuleRenderer.from_source(source, search_paths=[EXAMPLES])
+        with self.assertRaises(RendererError):
+            renderer.render()
 
     def test_render_raises_for_missing_imported_module(self):
         source = """

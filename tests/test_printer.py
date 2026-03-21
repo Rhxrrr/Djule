@@ -36,6 +36,13 @@ class PrinterTests(unittest.TestCase):
         self.assertIn("badge = <p>You have {unread_count} unread notifications.</p>", rendered)
         self.assertIn("<Button variant={button_variant}>Open inbox</Button>", rendered)
 
+    def test_embedded_if_else_round_trips_with_block_syntax(self):
+        rendered = self.render("05_embedded_if_else.djule")
+        self.assertIn("{", rendered)
+        self.assertIn("if user.is_authenticated:", rendered)
+        self.assertIn('f"Hello {user.username}"', rendered)
+        self.assertIn("<p>Your account is active.</p>", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

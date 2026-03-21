@@ -428,10 +428,14 @@ class DjuleLexer:
             return None
 
         if "\n" in text:
-            pieces = [line.strip() for line in text.splitlines() if line.strip()]
+            significant_lines = [line for line in text.splitlines() if line.strip()]
+            pieces = [line.strip() for line in significant_lines]
             if not pieces:
                 return None
-            return " ".join(pieces)
+            normalized = " ".join(pieces)
+            if significant_lines[-1].endswith(" "):
+                normalized = f"{normalized} "
+            return normalized
 
         return text
 
