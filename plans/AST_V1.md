@@ -72,7 +72,7 @@ Represents variable assignment.
 Fields:
 - `type`: `"AssignStmt"`
 - `target`: variable name
-- `value`: expression node
+- `value`: Python expression or markup node
 
 ### IfStmt
 Represents Python logic above `return`.
@@ -214,7 +214,7 @@ Represents assignments inside embedded blocks.
 Fields:
 - `type`: `"EmbeddedAssignNode"`
 - `target`: variable name
-- `value`: expression node
+- `value`: Python expression or markup node
 
 ## Expression Handling
 

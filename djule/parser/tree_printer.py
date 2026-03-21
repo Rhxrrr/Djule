@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+from .ast_nodes import (
+    AssignStmt,
+    AttributeNode,
+    ComponentDef,
+    ComponentNode,
+    ElementNode,
+    ExprStmt,
+    ExpressionNode,
+    ForStmt,
+    IfStmt,
+    ImportFrom,
+    MarkupNode,
+    Module,
+    PythonExpr,
+    ReturnStmt,
+    TextNode,
+)
+
+
+class DjuleTreePrinter:
+    """Render the Djule AST as a readable terminal tree."""
+
+    def print_module(self, module: Module) -> str:
+        lines = ["Module"]
+        children: list[tuple[str, object]] = [
+            ("imports", module.imports),
+            ("components", module.components),
+        ]
+        self._render_named_children(lines, "", children)
+        return "\n".join(lines)
+
+    def _render_named_children(
+        self,
+        lines: list[str],
+        prefix: str,
+        children: list[tuple[str, object]],
+    ) -> None:
+        visible = [(label, value) for label, value in children if self._should_render(value)]
+        for index, (label, value) in enumerate(visible):
+            is_last = index == len(visible) - 1
+            branch = self._branch(prefix, is_last, label)
+            lines.append(branch)
+            child_prefix = self._child_prefix(prefix, is_last)
+            self._render_value(lines, child_prefix, value)
+
+    def _render_value(self, lines: list[str], prefix: str, value: object) -> None:
+        if isinstance(value, str):
+            lines.append(self._branch(prefix, True, f"String: {value}"))
+            return
+
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                self._render_node(lines, prefix, item, is_last=index == len(value) - 1)
+            return
+
+        self._render_node(lines, prefix, value, is_last=True)
+
+    def _render_node(self, lines: list[str], prefix: str, node: object, is_last: bool) -> None:
+        label = self._node_label(node)
+        lines.append(self._branch(prefix, is_last, label))
+        child_prefix = self._child_prefix(prefix, is_last)
+
+        if isinstance(node, ImportFrom):
+            return
+
+        if isinstance(node, ComponentDef):
+            self._render_named_children(
+                lines,
+                child_prefix,
+                [
+                    ("body", node.body),
+                    ("return", node.return_stmt),
+                ],
+            )
+            return
+
+        if isinstance(node, AssignStmt):
+            self._render_named_children(lines, child_prefix, [("value", node.value)])
+            return
+
+        if isinstance(node, ExprStmt):
+            self._render_named_children(lines, child_prefix, [("value", node.value)])
+            return
+
+        if isinstance(node, IfStmt):
+            self._render_named_children(
+                lines,
+                child_prefix,
+                [
+                    ("test", node.test),
+                    ("body", node.body),
+                    ("else", node.orelse),
+                ],
+            )
+            return
+
+        if isinstance(node, ForStmt):
+            self._render_named_children(
+                lines,
+                child_prefix,
+                [
+                    ("iter", node.iter),
+                    ("body", node.body),
+                ],
+            )
+            return
+
+        if isinstance(node, ReturnStmt):
+            self._render_named_children(lines, child_prefix, [("value", node.value)])
+            return
+
+        if isinstance(node, (ElementNode, ComponentNode)):
+            children = [("attributes", node.attributes), ("children", node.children)]
+            self._render_named_children(lines, child_prefix, children)
+            return
+
+        if isinstance(node, AttributeNode):
+            self._render_named_children(lines, child_prefix, [("value", node.value)])
+            return
+
+        if isinstance(node, (PythonExpr, TextNode, ExpressionNode)):
+            return
+
+        raise TypeError(f"Unsupported AST node for tree printing: {type(node)!r}")
+
+    @staticmethod
+    def _node_label(node: object) -> str:
+        if isinstance(node, ImportFrom):
+            names = ", ".join(node.names)
+            return f"ImportFrom module={node.module} names=[{names}]"
+        if isinstance(node, ComponentDef):
+            params = ", ".join(node.params)
+            return f"ComponentDef name={node.name} params=[{params}]"
+        if isinstance(node, AssignStmt):
+            return f"AssignStmt target={node.target}"
+        if isinstance(node, ExprStmt):
+            return "ExprStmt"
+        if isinstance(node, IfStmt):
+            return "IfStmt"
+        if isinstance(node, ForStmt):
+            return f"ForStmt target={node.target}"
+        if isinstance(node, ReturnStmt):
+            return "ReturnStmt"
+        if isinstance(node, ElementNode):
+            return f"ElementNode <{node.tag}>"
+        if isinstance(node, ComponentNode):
+            return f"ComponentNode <{node.name}>"
+        if isinstance(node, AttributeNode):
+            return f"AttributeNode {node.name}"
+        if isinstance(node, PythonExpr):
+            return f"PythonExpr: {node.source}"
+        if isinstance(node, TextNode):
+            return f"TextNode: {node.value!r}"
+        if isinstance(node, ExpressionNode):
+            return f"ExpressionNode: {{{node.source}}}"
+        raise TypeError(f"Unsupported AST node: {type(node)!r}")
+
+    @staticmethod
+    def _should_render(value: object) -> bool:
+        if isinstance(value, list):
+            return bool(value)
+        return value is not None
+
+    @staticmethod
+    def _branch(prefix: str, is_last: bool, label: str) -> str:
+        connector = "└── " if is_last else "├── "
+        return f"{prefix}{connector}{label}"
+
+    @staticmethod
+    def _child_prefix(prefix: str, is_last: bool) -> str:
+        return prefix + ("    " if is_last else "│   ")
