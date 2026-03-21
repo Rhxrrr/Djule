@@ -1,0 +1,35 @@
+{
+  "name": "djule-language",
+  "displayName": "Djule Language",
+  "description": "Syntax highlighting and basic language configuration for Djule templates.",
+  "version": "0.0.1",
+  "publisher": "rhxrr",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "djule",
+        "aliases": [
+          "Djule",
+          "djule"
+        ],
+        "extensions": [
+          ".djule"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "djule",
+        "scopeName": "source.djule",
+        "path": "./syntaxes/djule.tmGrammar.json"
+      }
+    ]
+  }
+}
