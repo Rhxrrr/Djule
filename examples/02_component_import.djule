@@ -1,0 +1,12 @@
+from components.ui import Button, Card
+
+def Page(title):
+    return (
+        <Card>
+            <h1>{title}</h1>
+            <p>Imported components should feel natural in Djule.</p>
+            <Button variant="primary">
+                Continue
+            </Button>
+        </Card>
+    )

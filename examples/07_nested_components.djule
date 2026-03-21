@@ -1,0 +1,28 @@
+from components.layout import PageShell
+from components.navigation import Sidebar
+from components.ui import Card
+
+def DashboardHeader(user):
+    return (
+        <header class="dashboard-header">
+            <h1>Hello {user.username}</h1>
+        </header>
+    )
+
+def DashboardPage(user, team, projects):
+    return (
+        <PageShell user={user} team={team}>
+            <DashboardHeader user={user}></DashboardHeader>
+            <Sidebar team={team}></Sidebar>
+
+            <Card>
+                <h2>{team.name}</h2>
+                <ul>
+                    {
+                        for project in projects:
+                            <li>{project.name}</li>
+                    }
+                </ul>
+            </Card>
+        </PageShell>
+    )

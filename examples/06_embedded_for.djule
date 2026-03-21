@@ -1,0 +1,16 @@
+from components.ui import Button, Card
+
+def Page(user):
+    return (
+        <Card>
+            <h1>Quick actions</h1>
+            <div class="actions">
+                {
+                    for i in range(3):
+                        <Button variant="primary">
+                            Action {i + 1}
+                        </Button>
+                }
+            </div>
+        </Card>
+    )
