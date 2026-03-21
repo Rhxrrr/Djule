@@ -1,0 +1,15 @@
+def Card(children):
+    return (
+        <section class="card">
+            {children}
+        </section>
+    )
+
+def Button(variant, children):
+    button_class = f"btn btn-{variant}"
+
+    return (
+        <button class={button_class}>
+            {children}
+        </button>
+    )
