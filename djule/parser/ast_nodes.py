@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
-
 @dataclass(frozen=True)
 class PythonExpr:
     source: str
@@ -16,6 +15,8 @@ class PythonExpr:
 class ImportFrom:
     module: str
     names: list[str]
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="ImportFrom")
 
 
@@ -23,6 +24,8 @@ class ImportFrom:
 class ImportModule:
     module: str
     alias: str | None = None
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="ImportModule")
 
 
@@ -71,6 +74,8 @@ class ComponentNode:
     name: str
     attributes: list[AttributeNode]
     children: list["MarkupNode"]
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="ComponentNode")
 
 

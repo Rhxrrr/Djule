@@ -1,21 +1,15 @@
-from examples.components.ui import Button, Card
-
+import examples.components.ui as ui
 def Page(user, notifications):
     greeting = f"Hello {user.username}" if user.is_authenticated else "Hello guest"
     unread_count = len([n for n in notifications if not n.read])
     button_variant = "primary" if user.is_authenticated else "secondary"
-    
+
     if unread_count > 0:
         badge = <p>You have {unread_count} unread notifications.</p>
     else: 
         badge = <p>No new notifications.</p>
-
+        
     return (
-        <Card>
-            <h1>{greeting}</h1>
-            {badge}
-            <Button variant={button_variant}>
-                Open inbox
-            </Button>
-        </Card>
+        <div>
+        </div>
     )

@@ -319,7 +319,7 @@ class DjuleLexer:
         self.tokens.append(Token(token_type, name, line, column))
 
         if not is_closing:
-            self._lex_tag_attributes()
+            self._lex_tag_attributes(name, line, column)
 
         while not self.is_at_end() and self.peek() in " \t":
             self.advance()
@@ -331,13 +331,16 @@ class DjuleLexer:
         self.advance()
         return name, is_component, is_closing
 
-    def _lex_tag_attributes(self) -> None:
+    def _lex_tag_attributes(self, tag_name: str, tag_line: int, tag_column: int) -> None:
         while not self.is_at_end():
             while not self.is_at_end() and self.peek() in " \t\r\n":
                 self.advance()
 
             if self.peek() in {">", ""}:
                 return
+
+            if self.peek() in {"<", "/"}:
+                raise LexerError(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
 
             line, column = self.line, self.column
             start = self.index

@@ -72,6 +72,95 @@ class ParserCliTests(unittest.TestCase):
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.undefined-name")
         self.assertIn("someone", payload["diagnostics"][0]["message"])
 
+    def test_check_json_reports_unclosed_opening_tag_instead_of_attribute_error(self):
+        invalid_source = """from examples.components.ui import Button, Card
+
+def Page(user, notifications):
+    greeting = f"Hello {user.username}" if user.is_authenticated else "Hello guest"
+    unread_count = len([n for n in notifications if not n.read])
+    button_variant = "primary" if user.is_authenticated else "secondary"
+
+    if unread_count > 0:
+        badge = <p>You have {unread_count} unread notifications.</p>
+    else:
+        badge = <p>No new notifications.</p>
+
+    return (
+        <Card
+            <h1>{greeting}</h1>
+            {badge}
+            <Button variant={button_variant}>
+                Open inbox
+            </Button>
+        </Card>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=invalid_source)
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "lexer")
+        self.assertIn("Expected > to close tag <Card>", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_helpful_error_for_from_alias_module_syntax(self):
+        invalid_source = """from examples.components.ui as ui
+
+def Page():
+    return (
+        <main></main>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=invalid_source)
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "parser")
+        self.assertIn("use 'import ... as <alias>'", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_undefined_namespaced_component_reference(self):
+        invalid_source = """from examples.components.ui import Button, Card
+
+def Page():
+    return (
+        <ui.Card>
+            <Button variant="primary">
+                Continue
+            </Button>
+        </ui.Card>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=invalid_source)
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "semantic.undefined-component")
+        self.assertIn("ui.Card", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_unresolved_import_for_unsaved_source(self):
+        invalid_source = """import exmaples.components.ui as ui
+
+def Page():
+    return (
+        <div></div>
+    )
+"""
+        result = self.run_cli(
+            "check-json",
+            "-",
+            "--document-path",
+            str(EXAMPLES / "10_module_imports.djule"),
+            stdin=invalid_source,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import")
+        self.assertIn("exmaples.components.ui", payload["diagnostics"][0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

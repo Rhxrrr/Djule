@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import ast
+import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from .ast_nodes import (
     AssignStmt,
@@ -18,6 +21,8 @@ from .ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    ImportFrom,
+    ImportModule,
     IfStmt,
     MarkupNode,
     Module,
@@ -58,8 +63,22 @@ class DjuleAnalyzer:
 
     def __init__(self) -> None:
         self.diagnostics: list[SemanticDiagnostic] = []
+        self.document_path: Path | None = None
+        self.search_paths: list[Path] = []
 
-    def analyze(self, module: Module) -> list[SemanticDiagnostic]:
+    def analyze(
+        self,
+        module: Module,
+        *,
+        document_path: str | Path | None = None,
+        search_paths: list[str | Path] | None = None,
+    ) -> list[SemanticDiagnostic]:
+        self.document_path = Path(document_path).resolve() if document_path else None
+        self.search_paths = [
+            Path(path).resolve() for path in (search_paths or self._default_search_paths())
+        ]
+        self._analyze_imports(module.imports)
+
         module_names = {component.name for component in module.components}
         import_names: set[str] = set()
         for import_node in module.imports:
@@ -73,6 +92,79 @@ class DjuleAnalyzer:
         for component in module.components:
             self._analyze_component(component, base_scope)
         return self.diagnostics
+
+    def _analyze_imports(self, imports: list[ImportFrom | ImportModule]) -> None:
+        for import_node in imports:
+            if self._can_resolve_import(import_node.module):
+                continue
+
+            start_column = import_node.column + 5 if isinstance(import_node, ImportFrom) else import_node.column + 7
+            self.diagnostics.append(
+                SemanticDiagnostic(
+                    message=f"Imported module '{import_node.module}' could not be resolved",
+                    line=import_node.line or 1,
+                    column=start_column,
+                    end_column=start_column + len(import_node.module),
+                    code="semantic.unresolved-import",
+                )
+            )
+
+    def _can_resolve_import(self, module_name: str) -> bool:
+        if module_name.startswith("."):
+            return self._resolve_relative_import(module_name) is not None
+        return self._resolve_absolute_import(module_name) is not None
+
+    def _resolve_absolute_import(self, module_name: str) -> Path | None:
+        module_parts = module_name.split(".")
+        for base_path in self.search_paths:
+            file_candidate = base_path.joinpath(*module_parts).with_suffix(".djule")
+            package_candidate = base_path.joinpath(*module_parts, "__init__.djule")
+            if file_candidate.exists():
+                return file_candidate.resolve()
+            if package_candidate.exists():
+                return package_candidate.resolve()
+        return None
+
+    def _resolve_relative_import(self, module_name: str) -> Path | None:
+        if self.document_path is None:
+            return None
+
+        leading_dots = len(module_name) - len(module_name.lstrip("."))
+        remainder = module_name[leading_dots:]
+        module_parts = remainder.split(".") if remainder else []
+
+        base_path = self.document_path.parent
+        for _ in range(max(leading_dots - 1, 0)):
+            base_path = base_path.parent
+
+        candidates = []
+        if module_parts:
+            candidates.append(base_path.joinpath(*module_parts).with_suffix(".djule"))
+            candidates.append(base_path.joinpath(*module_parts, "__init__.djule"))
+        else:
+            candidates.append(base_path / "__init__.djule")
+
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate.resolve()
+        return None
+
+    @staticmethod
+    def _default_search_paths() -> list[Path]:
+        env_paths = os.environ.get("DJULE_PATH")
+        if env_paths:
+            return [Path(entry).resolve() for entry in env_paths.split(os.pathsep) if entry]
+
+        search_paths: list[Path] = []
+        seen: set[Path] = set()
+        for entry in sys.path:
+            candidate = Path.cwd() if entry == "" else Path(entry)
+            resolved = candidate.resolve()
+            if resolved in seen or not resolved.exists() or not resolved.is_dir():
+                continue
+            search_paths.append(resolved)
+            seen.add(resolved)
+        return search_paths or [Path.cwd().resolve()]
 
     def _analyze_component(self, component: ComponentDef, base_scope: set[str]) -> None:
         scope = set(base_scope)
@@ -127,6 +219,7 @@ class DjuleAnalyzer:
             return current
 
         if isinstance(node, ComponentNode):
+            self._check_component_reference(node, current)
             current = self._analyze_attributes(node.attributes, current)
             for child in node.children:
                 current = self._analyze_markup_node(child, current)
@@ -166,6 +259,23 @@ class DjuleAnalyzer:
 
     def _check_python_expr(self, expr: PythonExpr, scope: set[str]) -> None:
         self._check_expression_source(expr.source, expr.line, expr.column, scope)
+
+    def _check_component_reference(self, node: ComponentNode, scope: set[str]) -> None:
+        root_name = node.name.split(".")[0]
+        if root_name in scope:
+            return
+
+        start_column = node.column + 1 if node.column > 0 else 1
+        end_column = start_column + len(node.name)
+        self.diagnostics.append(
+            SemanticDiagnostic(
+                message=f"Component reference '{node.name}' is not defined in this scope",
+                line=node.line or 1,
+                column=start_column,
+                end_column=end_column,
+                code="semantic.undefined-component",
+            )
+        )
 
     def _check_expression_source(self, source: str, line: int, column: int, scope: set[str]) -> None:
         try:

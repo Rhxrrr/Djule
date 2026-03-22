@@ -81,8 +81,10 @@ class DjuleParser:
         return Module(imports=imports, components=components)
 
     def _parse_import_from(self) -> ImportFrom:
-        self._consume(TokenType.FROM, "Expected 'from'")
+        from_token = self._consume(TokenType.FROM, "Expected 'from'")
         module_name = self._parse_module_reference(allow_empty=True)
+        if self._check(TokenType.AS):
+            raise self._error("Expected 'import' after module path; use 'import ... as <alias>' for module aliases")
         self._consume(TokenType.IMPORT, "Expected 'import'")
 
         names = [self._consume(TokenType.NAME, "Expected import name").value]
@@ -90,10 +92,10 @@ class DjuleParser:
             names.append(self._consume(TokenType.NAME, "Expected import name after ','").value)
 
         self._consume(TokenType.NEWLINE, "Expected newline after import")
-        return ImportFrom(module=module_name, names=names)
+        return ImportFrom(module=module_name, names=names, line=from_token.line, column=from_token.column)
 
     def _parse_import_module(self) -> ImportModule:
-        self._consume(TokenType.IMPORT, "Expected 'import'")
+        import_token = self._consume(TokenType.IMPORT, "Expected 'import'")
         module_name = self._parse_module_reference(allow_empty=False)
 
         alias = None
@@ -101,7 +103,7 @@ class DjuleParser:
             alias = self._consume(TokenType.NAME, "Expected alias name after 'as'").value
 
         self._consume(TokenType.NEWLINE, "Expected newline after import")
-        return ImportModule(module=module_name, alias=alias)
+        return ImportModule(module=module_name, alias=alias, line=import_token.line, column=import_token.column)
 
     def _parse_module_reference(self, *, allow_empty: bool) -> str:
         relative_level = 0
@@ -264,7 +266,13 @@ class DjuleParser:
         children = self._parse_children_until(TokenType.COMPONENT_TAG_CLOSE, open_token.value)
         self._consume(TokenType.COMPONENT_TAG_CLOSE, f"Expected closing tag </{open_token.value}>")
         self._consume(TokenType.TAG_END, "Expected '>' after closing component tag")
-        return ComponentNode(name=open_token.value, attributes=attributes, children=children)
+        return ComponentNode(
+            name=open_token.value,
+            attributes=attributes,
+            children=children,
+            line=open_token.line,
+            column=open_token.column,
+        )
 
     def _parse_attributes(self) -> list[AttributeNode]:
         attributes = []

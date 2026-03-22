@@ -18,7 +18,7 @@ from .tree_printer import DjuleTreePrinter
 def _usage() -> str:
     return (
         "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render|check-json> <path-to-file.djule|-> "
-        "[--component <name>] [--props '<json-object>'] [--search-path <dir>]\n"
+        "[--component <name>] [--props '<json-object>'] [--search-path <dir>] [--document-path <file>]\n"
         "Aliases: lexer=tokens, parser=source"
     )
 
@@ -48,9 +48,10 @@ def main() -> int:
     component_name: str | None = None
     props: dict[str, object] = {}
     search_paths: list[Path] = []
+    document_path: Path | None = None
 
     extra_args = sys.argv[3:]
-    if mode not in {"render"} and extra_args:
+    if mode not in {"render", "check-json"} and extra_args:
         print(_usage())
         return 1
 
@@ -83,6 +84,12 @@ def main() -> int:
                 print("Missing value for --search-path")
                 return 1
             search_paths.append(Path(extra_args[index]))
+        elif option == "--document-path":
+            index += 1
+            if index >= len(extra_args):
+                print("Missing value for --document-path")
+                return 1
+            document_path = Path(extra_args[index])
         else:
             print(f"Unknown option: {option}")
             print(_usage())
@@ -130,6 +137,7 @@ def main() -> int:
                     }
                 ],
             )
+        analyzer_document_path = document_path or (path if path_arg != "-" else None)
         diagnostics = [
             {
                 "code": diagnostic.code,
@@ -139,7 +147,11 @@ def main() -> int:
                 "message": diagnostic.message,
                 "severity": diagnostic.severity,
             }
-            for diagnostic in DjuleAnalyzer().analyze(module)
+            for diagnostic in DjuleAnalyzer().analyze(
+                module,
+                document_path=analyzer_document_path,
+                search_paths=search_paths or None,
+            )
         ]
         return _emit_check_json_result(ok=not diagnostics, diagnostics=diagnostics)
 

@@ -15,6 +15,9 @@
       "include": "#function-definition"
     },
     {
+      "include": "#namespaced-component-tags"
+    },
+    {
       "include": "#component-tags"
     },
     {
@@ -37,6 +40,9 @@
     },
     {
       "include": "#numbers"
+    },
+    {
+      "include": "#member-names"
     },
     {
       "include": "#function-calls"
@@ -64,38 +70,18 @@
       "patterns": [
         {
           "name": "meta.import.from.djule",
-          "begin": "\\b(from)\\b\\s+",
+          "begin": "^(\\s*)(from)\\b\\s+",
           "beginCaptures": {
-            "1": {
+            "2": {
               "name": "keyword.control.import.from.djule"
-            }
-          },
-          "end": "(?=\\s+\\bimport\\b)",
-          "patterns": [
-            {
-              "name": "entity.name.type.class.djule",
-              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
-            },
-            {
-              "name": "punctuation.separator.namespace.djule",
-              "match": "\\."
-            }
-          ]
-        }
-      ]
-    },
-    "imports": {
-      "patterns": [
-        {
-          "name": "meta.import.djule",
-          "begin": "\\b(import)\\b\\s+",
-          "beginCaptures": {
-            "1": {
-              "name": "keyword.control.import.djule"
             }
           },
           "end": "$",
           "patterns": [
+            {
+              "name": "keyword.control.import.djule",
+              "match": "\\bimport\\b"
+            },
             {
               "name": "entity.name.type.class.djule",
               "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
@@ -107,6 +93,74 @@
             {
               "name": "punctuation.separator.comma.djule",
               "match": ","
+            }
+          ]
+        }
+      ]
+    },
+    "imports": {
+      "patterns": [
+        {
+          "name": "meta.import.djule",
+          "begin": "^(\\s*)(import)\\b\\s+",
+          "beginCaptures": {
+            "2": {
+              "name": "keyword.control.import.djule"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "name": "keyword.control.import.as.djule",
+              "match": "\\bas\\b"
+            },
+            {
+              "name": "entity.name.type.class.djule",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "punctuation.separator.namespace.djule",
+              "match": "\\."
+            },
+            {
+              "name": "punctuation.separator.comma.djule",
+              "match": ","
+            }
+          ]
+        }
+      ]
+    },
+    "namespaced-component-tags": {
+      "patterns": [
+        {
+          "name": "meta.tag.component.namespaced.djule",
+          "begin": "(</?)(?=[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*\\.[A-Z][A-Za-z0-9_]*\\b)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.begin.djule"
+            }
+          },
+          "end": "(>)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.end.djule"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.type.class.djule",
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\.)"
+            },
+            {
+              "name": "punctuation.separator.namespace.djule",
+              "match": "\\."
+            },
+            {
+              "name": "entity.name.type.class.djule",
+              "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=(?:\\s|/?>))"
+            },
+            {
+              "include": "#tag-attributes"
             }
           ]
         }
@@ -243,6 +297,7 @@
         {
           "name": "meta.interpolation.djule",
           "begin": "\\{",
+          "contentName": "meta.embedded.inline.djule",
           "beginCaptures": {
             "0": {
               "name": "punctuation.section.embedded.begin.djule"
@@ -257,6 +312,9 @@
           "patterns": [
             {
               "include": "#comments"
+            },
+            {
+              "include": "#namespaced-component-tags"
             },
             {
               "include": "#component-tags"
@@ -280,6 +338,9 @@
               "include": "#numbers"
             },
             {
+              "include": "#member-names"
+            },
+            {
               "include": "#function-calls"
             },
             {
@@ -297,6 +358,76 @@
     },
     "strings": {
       "patterns": [
+        {
+          "name": "string.quoted.double.djule",
+          "begin": "([rRuUbB]*[fF][rRuUbB]*)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string-prefix.djule"
+            },
+            "2": {
+              "name": "string.quoted.double.djule"
+            }
+          },
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "string.quoted.double.djule"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.brace.djule",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
+              "name": "constant.character.escape.djule",
+              "match": "\\\\."
+            },
+            {
+              "include": "#interpolation"
+            },
+            {
+              "name": "string.quoted.double.djule",
+              "match": "[^\\\\\"{]+"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.djule",
+          "begin": "([rRuUbB]*[fF][rRuUbB]*)(')",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.string-prefix.djule"
+            },
+            "2": {
+              "name": "string.quoted.single.djule"
+            }
+          },
+          "end": "(')",
+          "endCaptures": {
+            "1": {
+              "name": "string.quoted.single.djule"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.brace.djule",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
+              "name": "constant.character.escape.djule",
+              "match": "\\\\."
+            },
+            {
+              "include": "#interpolation"
+            },
+            {
+              "name": "string.quoted.single.djule",
+              "match": "[^\\\\'{]+"
+            }
+          ]
+        },
         {
           "name": "string.quoted.double.djule",
           "begin": "([fFrRuUbB]*)\"",
@@ -353,11 +484,19 @@
         }
       ]
     },
+    "member-names": {
+      "patterns": [
+        {
+          "name": "identifier.member.plain.djule",
+          "match": "(?<=\\.)\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
     "function-calls": {
       "patterns": [
         {
           "name": "support.function.djule",
-          "match": "\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+          "match": "(?<!\\.)\\b[a-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
         }
       ]
     },
@@ -365,11 +504,7 @@
       "patterns": [
         {
           "name": "variable.other.readwrite.djule",
-          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
-        },
-        {
-          "name": "punctuation.accessor.djule",
-          "match": "\\."
+          "match": "(?<!\\.)\\b[a-z_][A-Za-z0-9_]*\\b"
         }
       ]
     },
@@ -390,6 +525,10 @@
         {
           "name": "punctuation.separator.colon.djule",
           "match": ":"
+        },
+        {
+          "name": "punctuation.separator.period.djule",
+          "match": "\\."
         },
         {
           "name": "punctuation.section.group.begin.djule",

@@ -23,6 +23,8 @@ const HTML_TAGS = [
 const COMPONENT_DEF_RE = /^\s*def\s+([A-Z][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:/gm;
 const IMPORT_FROM_RE = /^\s*from\s+([.\w]+)\s+import\s+([A-Z][A-Za-z0-9_]*(?:\s*,\s*[A-Z][A-Za-z0-9_]*)*)\s*$/gm;
 const IMPORT_MODULE_RE = /^\s*import\s+([.\w]+)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$/gm;
+const ASSIGNMENT_RE = /^\s*([a-z_][A-Za-z0-9_]*)\s*=/gm;
+const FOR_TARGET_RE = /^\s*for\s+([a-z_][A-Za-z0-9_]*)\s+in\b/gm;
 const moduleSignatureCache = new Map();
 
 function activate(context) {
@@ -90,7 +92,7 @@ function activate(context) {
 
     const child = cp.spawn(
       pythonCommand,
-      ["-m", "djule.parser", "check-json", "-"],
+      ["-m", "djule.parser", "check-json", "-", "--document-path", document.uri.fsPath],
       {
         cwd: runtimeRoot.cwd,
         env: {
@@ -180,7 +182,7 @@ function provideDjuleCompletions(document, position, context, configuration) {
   const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
   const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd);
 
-  if (importItems) {
+  if (importItems !== null) {
     return importItems;
   }
 
@@ -190,6 +192,15 @@ function provideDjuleCompletions(document, position, context, configuration) {
 
   if (isTagContext(linePrefix)) {
     return buildTagCompletions(linePrefix, document, position, symbols);
+  }
+
+  if (isMemberAccessContext(linePrefix)) {
+    return buildMemberAccessCompletions(linePrefix, position, symbols);
+  }
+
+  const codeItems = buildCodeCompletions(document, position, symbols);
+  if (codeItems !== null) {
+    return codeItems;
   }
 
   return buildKeywordAndSnippetCompletions(document, position);
@@ -259,36 +270,48 @@ function isComponentAttributeContext(linePrefix) {
   return /<[A-Z][A-Za-z0-9_.]*[^>]*$/.test(linePrefix) && !/<\/[A-Z][A-Za-z0-9_.]*[^>]*$/.test(linePrefix);
 }
 
+function isMemberAccessContext(linePrefix) {
+  return /\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_0-9]*$/.test(linePrefix);
+}
+
 function buildImportCompletions(linePrefix, document, position, runtimeRoot) {
-  const fromImportNamesMatch = linePrefix.match(/^\s*from\s+([.\w]+)\s+import\s+([A-Za-z0-9_,\s]*)$/);
-  if (fromImportNamesMatch) {
-    const moduleName = fromImportNamesMatch[1];
-    const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
-    if (!modulePath) {
-      return [];
+  if (/^\s*from\s*$/.test(linePrefix) || /^\s*import\s*$/.test(linePrefix)) {
+    return [];
+  }
+
+  if (/^\s*from\b/.test(linePrefix) || /^\s*import\b/.test(linePrefix)) {
+    const fromImportNamesMatch = linePrefix.match(/^\s*from\s+([.\w]+)\s+import\s+([A-Za-z0-9_,\s]*)$/);
+    if (fromImportNamesMatch) {
+      const moduleName = fromImportNamesMatch[1];
+      const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+      if (!modulePath) {
+        return [];
+      }
+      const importFragmentInfo = importNameFragmentRange(linePrefix, position);
+      const signatures = loadModuleComponentSignatures(modulePath);
+      return Array.from(signatures.keys()).map((name) => {
+        const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
+        item.insertText = name;
+        item.detail = `Djule component from ${moduleName}`;
+        item.range = importFragmentInfo.range;
+        item.filterText = name;
+        return item;
+      });
     }
-    const importFragmentInfo = importNameFragmentRange(linePrefix, position);
-    const signatures = loadModuleComponentSignatures(modulePath);
-    return Array.from(signatures.keys()).map((name) => {
-      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
-      item.insertText = name;
-      item.detail = `Djule component from ${moduleName}`;
-      item.range = importFragmentInfo.range;
-      item.filterText = name;
-      return item;
-    });
-  }
 
-  const fromModuleMatch = linePrefix.match(/^\s*from\s+([.\w]*)$/);
-  if (fromModuleMatch) {
-    const modulePrefix = fromModuleMatch[1] || "";
-    return buildModulePathCompletions(document, position, runtimeRoot, modulePrefix);
-  }
+    const fromModuleMatch = linePrefix.match(/^\s*from\s+([.\w]*)$/);
+    if (fromModuleMatch) {
+      const modulePrefix = fromModuleMatch[1] || "";
+      return buildModulePathCompletions(document, position, runtimeRoot, modulePrefix);
+    }
 
-  const bareImportMatch = linePrefix.match(/^\s*import\s+([.\w]*)$/);
-  if (bareImportMatch) {
-    const modulePrefix = bareImportMatch[1] || "";
-    return buildModulePathCompletions(document, position, runtimeRoot, modulePrefix);
+    const bareImportMatch = linePrefix.match(/^\s*import\s+([.\w]*)$/);
+    if (bareImportMatch) {
+      const modulePrefix = bareImportMatch[1] || "";
+      return buildModulePathCompletions(document, position, runtimeRoot, modulePrefix);
+    }
+
+    return [];
   }
 
   return null;
@@ -329,28 +352,99 @@ function buildTagCompletions(linePrefix, document, position, symbols) {
   const range = replaceTailRange(position, partial.length);
 
   for (const tag of HTML_TAGS) {
+    if (partial && !tag.startsWith(partial)) {
+      continue;
+    }
     const item = new vscode.CompletionItem(tag, vscode.CompletionItemKind.Keyword);
     item.insertText = tag;
     item.detail = "HTML tag";
     item.range = range;
     item.filterText = tag;
+    item.sortText = `2-${tag}`;
     items.push(item);
   }
 
   for (const [name] of symbols.components) {
-    items.push(componentCompletionItem(name, range));
+    if (partial && !name.startsWith(partial)) {
+      continue;
+    }
+    const item = componentCompletionItem(name, range);
+    item.sortText = `1-${name}`;
+    items.push(item);
   }
 
   for (const namespace of symbols.namespacedModules.keys()) {
+    if (partial && !namespace.startsWith(partial)) {
+      continue;
+    }
     const item = new vscode.CompletionItem(namespace, vscode.CompletionItemKind.Module);
-    item.insertText = namespace;
+    item.insertText = `${namespace}.`;
     item.detail = "Djule module namespace";
     item.range = range;
     item.filterText = namespace;
+    item.sortText = `0-${namespace}`;
+    item.command = {
+      title: "Trigger Suggestions",
+      command: "editor.action.triggerSuggest",
+    };
     items.push(item);
   }
 
   return items;
+}
+
+function buildCodeCompletions(document, position, symbols) {
+  const wordRange = currentWordRange(document, position);
+  if (!wordRange) {
+    return null;
+  }
+
+  const currentPrefix = document.getText(wordRange);
+  if (!currentPrefix) {
+    return null;
+  }
+
+  const availableNames = collectCodeNames(document, position, symbols);
+  const items = Array.from(availableNames)
+    .filter((name) => name.startsWith(currentPrefix) && name !== currentPrefix)
+    .sort()
+    .map((name) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Variable);
+      item.insertText = name;
+      item.range = wordRange;
+      item.filterText = name;
+      item.detail = "Djule local name";
+      return item;
+    });
+
+  return items.length ? items : null;
+}
+
+function buildMemberAccessCompletions(linePrefix, position, symbols) {
+  const match = linePrefix.match(/\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/);
+  if (!match) {
+    return [];
+  }
+
+  const namespace = match[1];
+  const partial = match[2] || "";
+  const range = replaceTailRange(position, partial.length);
+  const moduleComponents = symbols.namespacedModules.get(namespace);
+  if (!moduleComponents) {
+    return [];
+  }
+
+  return Array.from(moduleComponents.keys())
+    .filter((name) => !partial || name.startsWith(partial))
+    .sort()
+    .map((name) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Class);
+      item.insertText = name;
+      item.detail = `Djule component from ${namespace}`;
+      item.range = range;
+      item.filterText = name;
+      return item;
+    });
 }
 
 function buildAttributeCompletions(linePrefix, document, position, symbols) {
@@ -494,6 +588,36 @@ function collectDocumentSymbols(document, runtimeRoot) {
   };
 }
 
+function collectCodeNames(document, position, symbols) {
+  const names = new Set();
+  const source = document.getText();
+  const componentContext = componentContextAtPosition(document, position, source);
+
+  if (componentContext) {
+    for (const param of componentContext.params) {
+      names.add(param);
+    }
+
+    const componentSourcePrefix = source.slice(componentContext.bodyStartOffset, document.offsetAt(position));
+    for (const match of componentSourcePrefix.matchAll(ASSIGNMENT_RE)) {
+      names.add(match[1]);
+    }
+    for (const match of componentSourcePrefix.matchAll(FOR_TARGET_RE)) {
+      names.add(match[1]);
+    }
+  }
+
+  for (const componentName of symbols.components.keys()) {
+    names.add(componentName);
+  }
+
+  for (const namespace of symbols.namespacedModules.keys()) {
+    names.add(namespace);
+  }
+
+  return names;
+}
+
 function extractComponentSignatures(source) {
   const components = new Map();
   for (const match of source.matchAll(COMPONENT_DEF_RE)) {
@@ -505,6 +629,33 @@ function extractComponentSignatures(source) {
     components.set(name, params);
   }
   return components;
+}
+
+function componentContextAtPosition(document, position, source) {
+  const currentOffset = document.offsetAt(position);
+  const componentMatches = Array.from(source.matchAll(COMPONENT_DEF_RE));
+
+  for (let index = 0; index < componentMatches.length; index += 1) {
+    const match = componentMatches[index];
+    const startOffset = match.index ?? 0;
+    const endOffset = index + 1 < componentMatches.length ? (componentMatches[index + 1].index ?? source.length) : source.length;
+
+    if (currentOffset < startOffset || currentOffset > endOffset) {
+      continue;
+    }
+
+    return {
+      name: match[1],
+      params: match[2]
+        .split(",")
+        .map((param) => param.trim())
+        .filter(Boolean),
+      bodyStartOffset: startOffset,
+      endOffset,
+    };
+  }
+
+  return null;
 }
 
 function extractImportedComponents(document, source, runtimeRoot) {
