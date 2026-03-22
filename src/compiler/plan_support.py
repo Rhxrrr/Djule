@@ -99,7 +99,7 @@ class DjulePlanMixin:
             return [StaticPart(node.value)]
 
         if isinstance(node, ExpressionNode):
-            return self._compile_expression_parts(node.source, bindings)
+            return self._compile_expression_parts(node.source, bindings, line=node.line, column=node.column)
 
         if isinstance(node, BlockNode):
             return [NodePart(node)]
@@ -132,19 +132,22 @@ class DjulePlanMixin:
         self,
         source: str,
         bindings: dict[str, tuple[str, object]],
+        *,
+        line: int = 0,
+        column: int = 0,
     ) -> list[PlanPart]:
         binding = self._binding_for_expression(source, bindings)
         if binding is None:
-            return [ExprPart(source)]
+            return [ExprPart(source, line=line, column=column)]
 
         binding_type, value = binding
         if binding_type == "literal":
             return [StaticPart(str(self._render_expression_value(value)))]
         if binding_type == "expr":
-            return [ExprPart(str(value))]
+            return [ExprPart(str(value), line=line, column=column)]
         if binding_type in {"children", "plan"}:
             return list(value)
-        return [ExprPart(source)]
+        return [ExprPart(source, line=line, column=column)]
 
     def _compile_attribute_parts(
         self,
@@ -162,9 +165,17 @@ class DjulePlanMixin:
                 literal_value = "" if value is None else str(value)
                 return [StaticPart(f' {attribute.name}="{escape(literal_value, quote=True)}"')]
             if binding_type == "expr":
-                return [StaticPart(f' {attribute.name}="'), AttrExprPart(str(value)), StaticPart('"')]
+                return [
+                    StaticPart(f' {attribute.name}="'),
+                    AttrExprPart(str(value), line=attribute.value.line, column=attribute.value.column),
+                    StaticPart('"'),
+                ]
 
-        return [StaticPart(f' {attribute.name}="'), AttrExprPart(attribute.value.source), StaticPart('"')]
+        return [
+            StaticPart(f' {attribute.name}="'),
+            AttrExprPart(attribute.value.source, line=attribute.value.line, column=attribute.value.column),
+            StaticPart('"'),
+        ]
 
     def _compile_component_node_parts(
         self,

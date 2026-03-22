@@ -90,7 +90,8 @@ class DjuleImportMixin:
                 return candidate.resolve()
 
         searched_paths = ", ".join(str(path) for path in candidates) or "<no search paths configured>"
-        raise RendererError(f"Could not resolve imported module '{module_name}'. Searched: {searched_paths}")
+        importer = f" from '{self.module_path}'" if self.module_path is not None else ""
+        raise RendererError(f"Could not resolve imported module '{module_name}'{importer}. Searched: {searched_paths}")
 
     def _resolve_relative_module_path(self, module_name: str) -> Path:
         if self.module_path is None:
@@ -118,7 +119,8 @@ class DjuleImportMixin:
                 return candidate.resolve()
 
         searched_paths = ", ".join(str(path) for path in candidates)
-        raise RendererError(f"Could not resolve imported module '{module_name}'. Searched: {searched_paths}")
+        importer = f" from '{self.module_path}'" if self.module_path is not None else ""
+        raise RendererError(f"Could not resolve imported module '{module_name}'{importer}. Searched: {searched_paths}")
 
     def _render_resolved_component(
         self,

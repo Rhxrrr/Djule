@@ -15,12 +15,16 @@ class StaticPart:
 @dataclass(frozen=True)
 class ExprPart:
     source: str
+    line: int = 0
+    column: int = 0
     type: str = field(init=False, default="ExprPart")
 
 
 @dataclass(frozen=True)
 class AttrExprPart:
     source: str
+    line: int = 0
+    column: int = 0
     type: str = field(init=False, default="AttrExprPart")
 
 

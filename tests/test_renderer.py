@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -130,7 +131,7 @@ class RendererTests(unittest.TestCase):
             page_plan["parts"],
             [
                 {"type": "StaticPart", "value": '<section class="card"><h1>'},
-                {"type": "ExprPart", "source": "title"},
+                {"type": "ExprPart", "source": "title", "line": 6, "column": 17},
                 {
                     "type": "StaticPart",
                     "value": '</h1><p>This paragraph Different is static and should be cached to disk.</p>'
@@ -185,7 +186,7 @@ class RendererTests(unittest.TestCase):
         payload = self.load_plan_payload("13_multi_component_cache_demo.djule")
         page_plan = payload["plan"]
         self.assertEqual(len(page_plan["parts"]), 3)
-        self.assertEqual(page_plan["parts"][1], {"type": "ExprPart", "source": "user_name"})
+        self.assertEqual(page_plan["parts"][1], {"type": "ExprPart", "source": "user_name", "line": 17, "column": 27})
 
     def test_simple_helper_assignments_are_flattened_into_component_plan(self):
         self.render(
@@ -202,7 +203,7 @@ class RendererTests(unittest.TestCase):
         self.assertIn("btn btn-", button_plan["parts"][1]["source"])
         self.assertIn("variant", button_plan["parts"][1]["source"])
         self.assertEqual(button_plan["parts"][2], {"type": "StaticPart", "value": '">'})
-        self.assertEqual(button_plan["parts"][3], {"type": "ExprPart", "source": "children"})
+        self.assertEqual(button_plan["parts"][3], {"type": "ExprPart", "source": "children", "line": 13, "column": 13})
         self.assertEqual(button_plan["parts"][4], {"type": "StaticPart", "value": "</button>"})
 
     def test_page_render_only_persists_the_entry_component_plan(self):
@@ -383,6 +384,69 @@ def Page():
         renderer = DjuleRenderer.from_source(source, search_paths=[EXAMPLES])
         with self.assertRaises(RendererError):
             renderer.render()
+
+    def test_imported_component_change_invalidates_cached_page_plan(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "ui.djule").write_text(
+                """def Card(children):
+    return (
+        <section class="card">
+            {children}
+        </section>
+    )
+"""
+            )
+            (root / "page.djule").write_text(
+                """from components.ui import Card
+
+def Page():
+    return (
+        <Card>
+            <p>Hello</p>
+        </Card>
+    )
+"""
+            )
+
+            first_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            first_html = first_renderer.render()
+            self.assertIn('class="card"', first_html)
+
+            time.sleep(0.01)
+            (components_dir / "ui.djule").write_text(
+                """def Card(children):
+    return (
+        <section class="card updated">
+            {children}
+        </section>
+    )
+"""
+            )
+
+            second_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            second_html = second_renderer.render()
+            self.assertIn('class="card updated"', second_html)
+
+    def test_expression_failure_includes_runtime_context(self):
+        source = """def Page(user):
+    return (
+        <main>
+            <h1>{user.missing_name}</h1>
+        </main>
+    )
+"""
+        renderer = DjuleRenderer.from_source(source)
+        with self.assertRaises(RendererError) as ctx:
+            renderer.render(props={"user": SimpleNamespace(username="Rhxrr")})
+
+        message = str(ctx.exception)
+        self.assertIn("Failed to evaluate expression 'user.missing_name'", message)
+        self.assertIn("component 'Page'", message)
+        self.assertIn("line 4, column 17", message)
 
 
 if __name__ == "__main__":
