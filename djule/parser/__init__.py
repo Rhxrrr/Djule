@@ -1,5 +1,6 @@
 """Parser primitives for Djule."""
 
+from .analyzer import DjuleAnalyzer, SemanticDiagnostic
 from .ast_nodes import Module
 from .lexer import DjuleLexer, LexerError
 from .parser import DjuleParser, ParserError
@@ -12,6 +13,8 @@ __all__ = [
     "LexerError",
     "DjuleParser",
     "ParserError",
+    "DjuleAnalyzer",
+    "SemanticDiagnostic",
     "DjulePrinter",
     "DjuleTreePrinter",
     "Module",

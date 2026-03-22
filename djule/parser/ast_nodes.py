@@ -7,6 +7,8 @@ from typing import Union
 @dataclass(frozen=True)
 class PythonExpr:
     source: str
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="PythonExpr")
 
 
@@ -43,12 +45,16 @@ class TextNode:
 @dataclass(frozen=True)
 class ExpressionNode:
     source: str
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="ExpressionNode")
 
 
 @dataclass(frozen=True)
 class EmbeddedExprNode:
     source: str
+    line: int = field(default=0, compare=False)
+    column: int = field(default=0, compare=False)
     type: str = field(init=False, default="EmbeddedExprNode")
 
 

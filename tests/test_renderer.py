@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from djule.compiler import DjuleRenderer, RendererError, SafeHtml
+from djule.parser import DjuleParser
 
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -19,19 +24,35 @@ def button_component(variant: str, children: str = "") -> SafeHtml:
 
 
 class RendererTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._cache_dir = tempfile.TemporaryDirectory()
+        self._cache_env = patch.dict(os.environ, {"DJULE_CACHE_DIR": self._cache_dir.name}, clear=False)
+        self._cache_env.start()
+        DjuleRenderer.clear_caches()
+
+    def tearDown(self) -> None:
+        self._cache_env.stop()
+        self._cache_dir.cleanup()
+
     def render(
         self,
         filename: str,
         props: dict[str, object] | None = None,
         component_registry: dict[str, object] | None = None,
         search_paths: list[Path] | None = None,
+        component_name: str | None = None,
     ) -> str:
         renderer = DjuleRenderer.from_file(
             EXAMPLES / filename,
             component_registry=component_registry,
             search_paths=search_paths,
         )
-        return renderer.render(props=props or {})
+        return renderer.render(component_name=component_name, props=props or {})
+
+    def load_plan_payload(self, filename: str, component_name: str = "Page") -> dict[str, object]:
+        path = (EXAMPLES / filename).resolve()
+        plan_path = DjuleRenderer._plan_cache_path(path, component_name)
+        return json.loads(plan_path.read_text())
 
     def test_simple_page_renders_html_and_escapes_expression_values(self):
         html = self.render("01_simple_page.djule", props={"title": '<Djule & "HTML">'})
@@ -40,6 +61,161 @@ class RendererTests(unittest.TestCase):
             '<main class="page"><h1>&lt;Djule &amp; &quot;HTML&quot;&gt;</h1>'
             "<p>Djule renders Python-based HTML components.</p></main>",
         )
+        stats = DjuleRenderer.cache_stats()
+        self.assertGreater(stats["parsed_modules"], 0)
+        self.assertGreater(stats["compiled_expressions"], 0)
+        self.assertGreater(stats["render_plans"], 0)
+
+    def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
+        first = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+        second = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+
+        self.assertIs(first.module, second.module)
+        self.assertEqual(DjuleRenderer.cache_stats()["parsed_modules"], 1)
+
+    def test_from_file_reparses_when_source_file_changes(self):
+        source_a = """def Page():
+    return (
+        <main>
+            <p>First</p>
+        </main>
+    )
+"""
+        source_b = """def Page():
+    return (
+        <main>
+            <p>Second</p>
+        </main>
+    )
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "page.djule"
+            path.write_text(source_a)
+            first = DjuleRenderer.from_file(path)
+            first_html = first.render()
+
+            path.write_text(source_b)
+            second = DjuleRenderer.from_file(path)
+            second_html = second.render()
+
+        self.assertNotEqual(first.module, second.module)
+        self.assertIn("First", first_html)
+        self.assertIn("Second", second_html)
+
+    def test_from_file_uses_disk_cached_module_after_memory_cache_is_cleared(self):
+        renderer = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+        html = renderer.render(props={"title": "Hello Djule"})
+        self.assertIn("Hello Djule", html)
+
+        DjuleRenderer.clear_caches()
+
+        with patch.object(DjuleParser, "from_file", side_effect=AssertionError("parser should not run")):
+            cached_renderer = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+            cached_html = cached_renderer.render(props={"title": "Hello Again"})
+
+        self.assertIn("Hello Again", cached_html)
+
+    def test_render_writes_render_plan_to_disk_cache(self):
+        self.render("01_simple_page.djule", props={"title": "Hello Djule"})
+
+        plan_dir = Path(self._cache_dir.name) / "plans"
+        plan_files = list(plan_dir.glob("*.json"))
+        self.assertTrue(plan_files)
+        self.assertEqual(len(plan_files), 1)
+
+    def test_simple_page_plan_splits_static_prefix_and_suffix_around_expression(self):
+        self.render("12_cache_demo.djule", props={"title": "Hello Djule"})
+
+        payload = self.load_plan_payload("12_cache_demo.djule")
+        page_plan = payload["plan"]
+        self.assertEqual(
+            page_plan["parts"],
+            [
+                {"type": "StaticPart", "value": '<section class="card"><h1>'},
+                {"type": "ExprPart", "source": "title"},
+                {
+                    "type": "StaticPart",
+                    "value": '</h1><p>This paragraph Different is static and should be cached to disk.</p>'
+                    '<section class="cache-note"><span>Static badge</span></section></section>',
+                },
+            ],
+        )
+
+    def test_plan_cache_updates_when_source_changes(self):
+        source_a = """def Page(title):
+    return (
+        <main>
+            <h1>{title}</h1>
+            <p>First static fragment.</p>
+        </main>
+    )
+"""
+        source_b = """def Page(title):
+    return (
+        <main>
+            <h1>{title}</h1>
+            <section class="note">Second static fragment.</section>
+        </main>
+    )
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = (Path(tmp_dir) / "page.djule").resolve()
+            path.write_text(source_a)
+
+            first_renderer = DjuleRenderer.from_file(path)
+            first_renderer.render(props={"title": "Demo"})
+            first_payload = json.loads(DjuleRenderer._plan_cache_path(path, "Page").read_text())
+            first_parts = first_payload["plan"]["parts"]
+            self.assertEqual(first_parts[-1]["value"], "</h1><p>First static fragment.</p></main>")
+
+            path.write_text(source_b)
+            DjuleRenderer.clear_caches()
+
+            second_renderer = DjuleRenderer.from_file(path)
+            second_renderer.render(props={"title": "Demo"})
+            second_payload = json.loads(DjuleRenderer._plan_cache_path(path, "Page").read_text())
+            second_parts = second_payload["plan"]["parts"]
+            self.assertEqual(
+                second_parts[-1]["value"],
+                '</h1><section class="note">Second static fragment.</section></main>',
+            )
+
+    def test_text_only_static_runs_are_not_cached_as_separate_plan_parts(self):
+        html = self.render("13_multi_component_cache_demo.djule", props={"user_name": "Rhxrr"})
+        self.assertIn("<h1>Hello Rhxrr</h1>", html)
+
+        payload = self.load_plan_payload("13_multi_component_cache_demo.djule")
+        page_plan = payload["plan"]
+        self.assertEqual(len(page_plan["parts"]), 3)
+        self.assertEqual(page_plan["parts"][1], {"type": "ExprPart", "source": "user_name"})
+
+    def test_simple_helper_assignments_are_flattened_into_component_plan(self):
+        self.render(
+            "components/ui.djule",
+            props={"variant": "primary", "children": SafeHtml("Continue")},
+            component_name="Button",
+        )
+
+        payload = self.load_plan_payload("components/ui.djule", component_name="Button")
+        button_plan = payload["plan"]
+        self.assertFalse(button_plan["requires_runtime_body"])
+        self.assertEqual(button_plan["parts"][0], {"type": "StaticPart", "value": '<button class="'})
+        self.assertEqual(button_plan["parts"][1]["type"], "AttrExprPart")
+        self.assertIn("btn btn-", button_plan["parts"][1]["source"])
+        self.assertIn("variant", button_plan["parts"][1]["source"])
+        self.assertEqual(button_plan["parts"][2], {"type": "StaticPart", "value": '">'})
+        self.assertEqual(button_plan["parts"][3], {"type": "ExprPart", "source": "children"})
+        self.assertEqual(button_plan["parts"][4], {"type": "StaticPart", "value": "</button>"})
+
+    def test_page_render_only_persists_the_entry_component_plan(self):
+        self.render("02_component_import.djule", props={"title": "Hello Djule"})
+
+        plan_dir = Path(self._cache_dir.name) / "plans"
+        plan_files = list(plan_dir.glob("*.json"))
+        self.assertEqual(len(plan_files), 1)
+        self.assertTrue(DjuleRenderer._plan_cache_path((EXAMPLES / "02_component_import.djule").resolve(), "Page").exists())
+        self.assertFalse(DjuleRenderer._plan_cache_path((EXAMPLES / "components/ui.djule").resolve(), "Card").exists())
+        self.assertFalse(DjuleRenderer._plan_cache_path((EXAMPLES / "components/ui.djule").resolve(), "Button").exists())
 
     def test_children_example_renders_internal_component_children(self):
         html = self.render("03_children.djule")

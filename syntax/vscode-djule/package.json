@@ -4,11 +4,16 @@
   "description": "Syntax highlighting and basic language configuration for Djule templates.",
   "version": "0.0.1",
   "publisher": "rhxrr",
+  "main": "./extension.js",
   "engines": {
     "vscode": "^1.80.0"
   },
+  "activationEvents": [
+    "onLanguage:djule"
+  ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Themes"
   ],
   "contributes": {
     "languages": [
@@ -30,6 +35,33 @@
         "scopeName": "source.djule",
         "path": "./syntaxes/djule.tmGrammar.json"
       }
-    ]
+    ],
+    "iconThemes": [
+      {
+        "id": "djule-icons",
+        "label": "Djule Icons",
+        "path": "./djule-icon-theme.json"
+      }
+    ],
+    "configuration": {
+      "title": "Djule",
+      "properties": {
+        "djule.pythonCommand": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python command used by the Djule VS Code extension for live syntax diagnostics."
+        },
+        "djule.liveSyntax": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable live Djule lexer/parser diagnostics while editing .djule files."
+        },
+        "djule.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the Djule project root. Use this if automatic root detection does not find the local djule package."
+        }
+      }
+    }
   }
 }

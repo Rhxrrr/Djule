@@ -236,10 +236,11 @@ class DjuleParser:
         if self._check(TokenType.TEXT):
             return TextNode(value=self._advance().value)
         if self._check(TokenType.EXPR):
-            source = self._advance().value
+            token = self._advance()
+            source = token.value
             if self._is_embedded_block_source(source):
                 return self._parse_embedded_block_source(source)
-            return ExpressionNode(source=source)
+            return ExpressionNode(source=source, line=token.line, column=token.column)
         raise self._error("Expected markup node")
 
     def _parse_element_node(self) -> ElementNode:
@@ -273,7 +274,8 @@ class DjuleParser:
             if self._check(TokenType.STRING):
                 value: str | PythonExpr = self._advance().value
             elif self._check(TokenType.EXPR):
-                value = PythonExpr(source=self._advance().value)
+                token = self._advance()
+                value = PythonExpr(source=token.value, line=token.line, column=token.column)
             else:
                 raise self._error("Expected string or {expr} attribute value")
             attributes.append(AttributeNode(name=name, value=value))
@@ -291,7 +293,7 @@ class DjuleParser:
         tokens = self._collect_tokens_until({stop_type})
         if not tokens:
             raise self._error("Expected Python expression")
-        return PythonExpr(source=self._tokens_to_source(tokens))
+        return PythonExpr(source=self._tokens_to_source(tokens), line=tokens[0].line, column=tokens[0].column)
 
     def _parse_embedded_block_source(self, source: str) -> BlockNode:
         normalized_source = self._normalize_embedded_block_source(source)
@@ -367,7 +369,7 @@ class DjuleParser:
     def _parse_embedded_expr_node(self) -> EmbeddedExprNode:
         expr = self._parse_python_expr_until(TokenType.NEWLINE)
         self._consume(TokenType.NEWLINE, "Expected newline after embedded expression")
-        return EmbeddedExprNode(source=expr.source)
+        return EmbeddedExprNode(source=expr.source, line=expr.line, column=expr.column)
 
     def _parse_embedded_block_items(self) -> list[BlockItem]:
         items = self._parse_block_items_until({TokenType.DEDENT})

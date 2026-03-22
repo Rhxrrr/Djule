@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from djule.compiler import DjuleRenderer, RendererError
 
+from .analyzer import DjuleAnalyzer
 from .lexer import DjuleLexer, LexerError
 from .parser import DjuleParser, ParserError
 from .printer import DjulePrinter
@@ -16,7 +17,7 @@ from .tree_printer import DjuleTreePrinter
 
 def _usage() -> str:
     return (
-        "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render> <path-to-file.djule> "
+        "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render|check-json> <path-to-file.djule|-> "
         "[--component <name>] [--props '<json-object>'] [--search-path <dir>]\n"
         "Aliases: lexer=tokens, parser=source"
     )
@@ -30,19 +31,26 @@ def _coerce_cli_value(value: object) -> object:
     return value
 
 
+def _emit_check_json_result(*, ok: bool, diagnostics: list[dict[str, object]]) -> int:
+    print(json.dumps({"ok": ok, "diagnostics": diagnostics}, separators=(",", ":"), sort_keys=True))
+    return 0 if ok else 2
+
+
 def main() -> int:
-    if len(sys.argv) < 3 or sys.argv[1] not in {"lexer", "parser", "ast", "ast-raw", "render", "tokens", "source"}:
+    supported_modes = {"lexer", "parser", "ast", "ast-raw", "render", "check-json", "tokens", "source"}
+    if len(sys.argv) < 3 or sys.argv[1] not in supported_modes:
         print(_usage())
         return 1
 
     mode = sys.argv[1]
-    path = Path(sys.argv[2])
+    path_arg = sys.argv[2]
+    path = Path(path_arg)
     component_name: str | None = None
     props: dict[str, object] = {}
     search_paths: list[Path] = []
 
     extra_args = sys.argv[3:]
-    if mode != "render" and extra_args:
+    if mode not in {"render"} and extra_args:
         print(_usage())
         return 1
 
@@ -82,8 +90,8 @@ def main() -> int:
         index += 1
 
     if mode in {"lexer", "tokens"}:
-        lexer = DjuleLexer.from_file(path)
         try:
+            lexer = DjuleLexer(sys.stdin.read()) if path_arg == "-" else DjuleLexer.from_file(path)
             tokens = lexer.tokenize()
         except LexerError as exc:
             print(f"Lexer error: {exc}")
@@ -92,10 +100,56 @@ def main() -> int:
             print(token)
         return 0
 
+    if mode == "check-json":
+        try:
+            parser = DjuleParser.from_source(sys.stdin.read()) if path_arg == "-" else DjuleParser.from_file(path)
+            module = parser.parse()
+        except LexerError as exc:
+            return _emit_check_json_result(
+                ok=False,
+                diagnostics=[
+                    {
+                        "code": "lexer",
+                        "column": exc.column,
+                        "line": exc.line,
+                        "message": exc.message,
+                        "severity": "error",
+                    }
+                ],
+            )
+        except ParserError as exc:
+            return _emit_check_json_result(
+                ok=False,
+                diagnostics=[
+                    {
+                        "code": "parser",
+                        "column": exc.token.column,
+                        "line": exc.token.line,
+                        "message": exc.message,
+                        "severity": "error",
+                    }
+                ],
+            )
+        diagnostics = [
+            {
+                "code": diagnostic.code,
+                "column": diagnostic.column,
+                "endColumn": diagnostic.end_column,
+                "line": diagnostic.line,
+                "message": diagnostic.message,
+                "severity": diagnostic.severity,
+            }
+            for diagnostic in DjuleAnalyzer().analyze(module)
+        ]
+        return _emit_check_json_result(ok=not diagnostics, diagnostics=diagnostics)
+
     if mode == "render":
         try:
             renderer = DjuleRenderer.from_file(path, search_paths=search_paths or None)
             print(renderer.render(component_name=component_name, props=props))
+        except LexerError as exc:
+            print(f"Lexer error: {exc}")
+            return 2
         except ParserError as exc:
             print(f"Parser error: {exc}")
             return 3
@@ -104,9 +158,12 @@ def main() -> int:
             return 4
         return 0
 
-    parser = DjuleParser.from_file(path)
     try:
+        parser = DjuleParser.from_source(sys.stdin.read()) if path_arg == "-" else DjuleParser.from_file(path)
         module = parser.parse()
+    except LexerError as exc:
+        print(f"Lexer error: {exc}")
+        return 2
     except ParserError as exc:
         print(f"Parser error: {exc}")
         return 3
