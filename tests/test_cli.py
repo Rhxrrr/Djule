@@ -160,6 +160,60 @@ def Page():
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import")
         self.assertIn("exmaples.components.ui", payload["diagnostics"][0]["message"])
 
+    def test_check_json_rejects_malformed_multiline_embedded_block(self):
+        invalid_source = """from examples.components.ui import Card
+
+def Page(user):
+    return (
+        <Card>
+            <h1>
+                {
+                    user.is_authenticated:
+                        f"Hello {user.username}"
+                    else:
+                        "Hello guest"
+                }
+            </h1>
+        </Card>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=invalid_source)
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "parser")
+        self.assertEqual(payload["diagnostics"][0]["line"], 8)
+        self.assertIn("Expected embedded block to start with 'if', 'for', or an assignment", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_real_file_line_for_invalid_embedded_for_block(self):
+        invalid_source = """from examples.components.ui import Card
+
+def Page(user):
+    return (
+        <Card>
+            <h1>
+                {
+                    for user.is_authenticated:
+                        f"Hello {user.username}"
+                    else:
+                        "Hello guest"
+                }
+            </h1>
+        </Card>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=invalid_source)
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "parser")
+        self.assertEqual(payload["diagnostics"][0]["line"], 8)
+        self.assertEqual(payload["diagnostics"][0]["column"], 25)
+        self.assertEqual(payload["diagnostics"][0]["endColumn"], 46)
+        self.assertIn("Expected 'in' after loop variable in embedded for loop", payload["diagnostics"][0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

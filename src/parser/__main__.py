@@ -125,17 +125,18 @@ def main() -> int:
                 ],
             )
         except ParserError as exc:
+            diagnostic = {
+                "code": "parser",
+                "column": exc.token.column,
+                "line": exc.token.line,
+                "message": exc.message,
+                "severity": "error",
+            }
+            if exc.end_column is not None:
+                diagnostic["endColumn"] = exc.end_column
             return _emit_check_json_result(
                 ok=False,
-                diagnostics=[
-                    {
-                        "code": "parser",
-                        "column": exc.token.column,
-                        "line": exc.token.line,
-                        "message": exc.message,
-                        "severity": "error",
-                    }
-                ],
+                diagnostics=[diagnostic],
             )
         analyzer_document_path = document_path or (path if path_arg != "-" else None)
         diagnostics = [

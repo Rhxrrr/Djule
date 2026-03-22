@@ -11,5 +11,7 @@ def Page(user, notifications):
         
     return (
         <div>
+            <ui.Card>
+            </ui.Card>
         </div>
     )

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
+import ast
 from dataclasses import dataclass
+from pathlib import Path
 import re
 
 from .ast_nodes import (
@@ -29,6 +30,7 @@ from .ast_nodes import (
     TextNode,
 )
 from .lexer import DjuleLexer
+from .lexer import LexerError
 from .tokens import Token, TokenType
 
 
@@ -36,6 +38,7 @@ from .tokens import Token, TokenType
 class ParserError(Exception):
     message: str
     token: Token
+    end_column: int | None = None
 
     def __str__(self) -> str:
         return f"{self.message} at line {self.token.line}, column {self.token.column}"
@@ -196,7 +199,10 @@ class DjuleParser:
 
     def _parse_for_stmt(self) -> ForStmt:
         self._consume(TokenType.FOR, "Expected 'for'")
-        target = self._consume(TokenType.NAME, "Expected loop variable").value
+        target_token = self._consume(TokenType.NAME, "Expected loop variable")
+        target = target_token.value
+        if not self._check(TokenType.IN):
+            raise self._invalid_for_target_error(target_token, embedded=False)
         self._consume(TokenType.IN, "Expected 'in' in for loop")
         iter_expr = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after for loop")
@@ -241,7 +247,14 @@ class DjuleParser:
             token = self._advance()
             source = token.value
             if self._is_embedded_block_source(source):
-                return self._parse_embedded_block_source(source)
+                return self._parse_embedded_block_source(source, token)
+            if self._looks_like_malformed_embedded_block(source):
+                line, column = self._embedded_error_location(source, token, 1, 1)
+                raise ParserError(
+                    message="Expected embedded block to start with 'if', 'for', or an assignment",
+                    token=Token(type=token.type, value=token.value, line=line, column=column),
+                )
+            self._validate_python_expression(source, token, "Invalid Python expression inside '{...}'")
             return ExpressionNode(source=source, line=token.line, column=token.column)
         raise self._error("Expected markup node")
 
@@ -301,12 +314,19 @@ class DjuleParser:
         tokens = self._collect_tokens_until({stop_type})
         if not tokens:
             raise self._error("Expected Python expression")
-        return PythonExpr(source=self._tokens_to_source(tokens), line=tokens[0].line, column=tokens[0].column)
+        source = self._tokens_to_source(tokens)
+        self._validate_python_expression(source, tokens[0], "Invalid Python expression")
+        return PythonExpr(source=source, line=tokens[0].line, column=tokens[0].column)
 
-    def _parse_embedded_block_source(self, source: str) -> BlockNode:
+    def _parse_embedded_block_source(self, source: str, origin: Token) -> BlockNode:
         normalized_source = self._normalize_embedded_block_source(source)
-        parser = DjuleParser.from_source(normalized_source)
-        return parser.parse_embedded_block()
+        try:
+            parser = DjuleParser.from_source(normalized_source)
+            return parser.parse_embedded_block()
+        except ParserError as exc:
+            raise self._remap_embedded_parser_error(source, origin, exc) from exc
+        except LexerError as exc:
+            raise self._remap_embedded_lexer_error(source, origin, exc) from exc
 
     def parse_embedded_block(self) -> BlockNode:
         self._skip_newlines()
@@ -365,7 +385,10 @@ class DjuleParser:
 
     def _parse_embedded_for_node(self) -> EmbeddedForNode:
         self._consume(TokenType.FOR, "Expected 'for'")
-        target = self._consume(TokenType.NAME, "Expected loop variable").value
+        target_token = self._consume(TokenType.NAME, "Expected loop variable")
+        target = target_token.value
+        if not self._check(TokenType.IN):
+            raise self._invalid_for_target_error(target_token, embedded=True)
         self._consume(TokenType.IN, "Expected 'in' in embedded for loop")
         iter_expr = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after embedded for loop")
@@ -470,6 +493,72 @@ class DjuleParser:
             return True
         first_line = stripped.splitlines()[0]
         return "=" in first_line and "==" not in first_line and "!=" not in first_line
+
+    @staticmethod
+    def _looks_like_malformed_embedded_block(source: str) -> bool:
+        stripped = source.strip()
+        if "\n" not in stripped:
+            return False
+
+        lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return False
+
+        first_line = lines[0]
+        if first_line.endswith(":"):
+            return True
+
+        return any(line == "else:" or line.startswith("elif ") for line in lines[1:])
+
+    @staticmethod
+    def _validate_python_expression(source: str, token: Token, message: str) -> None:
+        try:
+            ast.parse(source.strip(), mode="eval")
+        except SyntaxError as exc:
+            detail = exc.msg or "invalid syntax"
+            raise ParserError(message=f"{message}: {detail}", token=token) from exc
+
+    def _invalid_for_target_error(self, target_token: Token, *, embedded: bool) -> ParserError:
+        invalid_tokens = [target_token]
+        while not self._check_any({TokenType.IN, TokenType.COLON, TokenType.NEWLINE, TokenType.EOF}):
+            invalid_tokens.append(self._advance())
+
+        last_token = invalid_tokens[-1]
+        loop_kind = "embedded for loop" if embedded else "for loop"
+        message = f"Expected 'in' after loop variable in {loop_kind}"
+        end_column = last_token.column + max(len(last_token.value), 1)
+        return ParserError(message=message, token=target_token, end_column=end_column)
+
+    @staticmethod
+    def _embedded_error_location(source: str, origin: Token, nested_line: int, nested_column: int) -> tuple[int, int]:
+        block_lines = source.splitlines() or [source]
+        line_index = max(0, min(len(block_lines) - 1, nested_line - 1))
+        actual_line = origin.line + nested_line
+
+        raw_line = block_lines[line_index]
+        if line_index == 0:
+            actual_column = max(1, origin.column + 4 + max(0, nested_column - 1))
+        else:
+            leading_spaces = len(raw_line) - len(raw_line.lstrip(" "))
+            actual_column = max(1, leading_spaces + max(1, nested_column))
+        return actual_line, actual_column
+
+    @classmethod
+    def _remap_embedded_parser_error(cls, source: str, origin: Token, exc: ParserError) -> ParserError:
+        line, column = cls._embedded_error_location(source, origin, exc.token.line, exc.token.column)
+        end_column = None
+        if exc.end_column is not None:
+            _, end_column = cls._embedded_error_location(source, origin, exc.token.line, exc.end_column)
+        return ParserError(
+            message=exc.message,
+            token=Token(type=exc.token.type, value=exc.token.value, line=line, column=column),
+            end_column=end_column,
+        )
+
+    @classmethod
+    def _remap_embedded_lexer_error(cls, source: str, origin: Token, exc: LexerError) -> LexerError:
+        line, column = cls._embedded_error_location(source, origin, exc.line, exc.column)
+        return LexerError(message=exc.message, line=line, column=column)
 
     @staticmethod
     def _normalize_embedded_block_source(source: str) -> str:

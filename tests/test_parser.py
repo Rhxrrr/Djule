@@ -162,6 +162,27 @@ def Page():
         with self.assertRaises(ParserError):
             DjuleParser.from_source(source).parse()
 
+    def test_multiline_brace_block_without_if_or_for_is_rejected(self):
+        source = """
+from examples.components.ui import Card
+
+def Page(user):
+    return (
+        <Card>
+            <h1>
+                {
+                    user.is_authenticated:
+                        f"Hello {user.username}"
+                    else:
+                        "Hello guest"
+                }
+            </h1>
+        </Card>
+    )
+"""
+        with self.assertRaises(ParserError):
+            DjuleParser.from_source(source).parse()
+
 
 if __name__ == "__main__":
     unittest.main()
