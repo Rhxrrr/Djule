@@ -1,0 +1,6 @@
+def Sidebar(team):
+    return (
+        <aside class="sidebar">
+            <h3>{team.name}</h3>
+        </aside>
+    )

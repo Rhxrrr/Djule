@@ -24,8 +24,13 @@ class RendererTests(unittest.TestCase):
         filename: str,
         props: dict[str, object] | None = None,
         component_registry: dict[str, object] | None = None,
+        search_paths: list[Path] | None = None,
     ) -> str:
-        renderer = DjuleRenderer.from_file(EXAMPLES / filename, component_registry=component_registry)
+        renderer = DjuleRenderer.from_file(
+            EXAMPLES / filename,
+            component_registry=component_registry,
+            search_paths=search_paths,
+        )
         return renderer.render(props=props or {})
 
     def test_simple_page_renders_html_and_escapes_expression_values(self):
@@ -53,12 +58,62 @@ class RendererTests(unittest.TestCase):
             '<button class="btn btn-primary">Continue</button></section>',
         )
 
+    def test_module_import_renders_namespaced_components(self):
+        html = self.render("10_module_imports.djule", props={"title": "Hello Djule"})
+        self.assertEqual(
+            html,
+            '<section class="card"><h1>Hello Djule</h1><p>Module imports should feel natural too.</p>'
+            '<button class="btn btn-primary">Continue</button></section>',
+        )
+
+    def test_module_import_without_alias_uses_full_namespace(self):
+        source = """
+import examples.components.ui
+
+def Page(title):
+    return (
+        <examples.components.ui.Card>
+            <h1>{title}</h1>
+            <examples.components.ui.Button variant="primary">
+                Continue
+            </examples.components.ui.Button>
+        </examples.components.ui.Card>
+    )
+"""
+        renderer = DjuleRenderer.from_source(source)
+        html = renderer.render(props={"title": "Hello Djule"})
+        self.assertEqual(
+            html,
+            '<section class="card"><h1>Hello Djule</h1>'
+            '<button class="btn btn-primary">Continue</button></section>',
+        )
+
     def test_relative_import_renders_from_parent_directories(self):
         html = self.render("feature/pages/deep/09_relative_imports.djule", props={"title": "Nested Djule"})
         self.assertEqual(
             html,
             '<section class="feature-card"><h1>Nested Djule</h1>'
             '<button class="feature-btn feature-btn-primary">Relative import works</button></section>',
+        )
+
+    def test_absolute_import_from_nested_file_uses_python_like_import_root(self):
+        html = self.render("feature/pages/deep/11_absolute_imports.djule", props={"title": "Nested Djule"})
+        self.assertEqual(
+            html,
+            '<section class="feature-card"><h1>Nested Djule</h1>'
+            '<button class="feature-btn feature-btn-primary">Absolute import works</button></section>',
+        )
+
+    def test_explicit_search_path_can_override_python_like_import_root(self):
+        html = self.render(
+            "feature/pages/deep/11_absolute_imports.djule",
+            props={"title": "Nested Djule"},
+            search_paths=[Path.cwd()],
+        )
+        self.assertEqual(
+            html,
+            '<section class="feature-card"><h1>Nested Djule</h1>'
+            '<button class="feature-btn feature-btn-primary">Absolute import works</button></section>',
         )
 
     def test_embedded_if_else_renders_inside_markup(self):

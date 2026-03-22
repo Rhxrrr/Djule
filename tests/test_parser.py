@@ -16,6 +16,7 @@ from djule.parser.ast_nodes import (
     ExpressionNode,
     IfStmt,
     ImportFrom,
+    ImportModule,
     Module,
     TextNode,
 )
@@ -44,7 +45,7 @@ class ParserTests(unittest.TestCase):
     def test_component_import_parses_import_and_component_nodes(self):
         module = self.parse("02_component_import.djule")
 
-        self.assertEqual(module.imports, [ImportFrom(module="components.ui", names=["Button", "Card"])])
+        self.assertEqual(module.imports, [ImportFrom(module="examples.components.ui", names=["Button", "Card"])])
         component = module.components[0]
         root = component.return_stmt.value
         self.assertIsInstance(root, ComponentNode)
@@ -58,6 +59,35 @@ class ParserTests(unittest.TestCase):
         root = module.components[0].return_stmt.value
         self.assertIsInstance(root, ComponentNode)
         self.assertEqual(root.name, "Card")
+
+    def test_module_import_parses_alias_and_namespaced_component_tags(self):
+        module = self.parse("10_module_imports.djule")
+
+        self.assertEqual(module.imports, [ImportModule(module="examples.components.ui", alias="ui")])
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ComponentNode)
+        self.assertEqual(root.name, "ui.Card")
+        self.assertEqual(root.children[-1].name, "ui.Button")
+
+    def test_module_import_without_alias_keeps_full_module_namespace(self):
+        source = """
+import examples.components.ui
+
+def Page():
+    return (
+        <examples.components.ui.Card>
+            <examples.components.ui.Button variant="primary">
+                Continue
+            </examples.components.ui.Button>
+        </examples.components.ui.Card>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        self.assertEqual(module.imports, [ImportModule(module="examples.components.ui", alias=None)])
+        root = module.components[0].return_stmt.value
+        self.assertEqual(root.name, "examples.components.ui.Card")
+        self.assertEqual(root.children[0].name, "examples.components.ui.Button")
 
     def test_children_example_parses_nested_text(self):
         module = self.parse("03_children.djule")

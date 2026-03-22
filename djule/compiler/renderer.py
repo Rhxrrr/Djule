@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
+import sys
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -22,6 +24,8 @@ from djule.parser.ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    ImportFrom,
+    ImportModule,
     IfStmt,
     MarkupNode,
     Module,
@@ -37,6 +41,12 @@ class SafeHtml(str):
 
 
 ExternalComponent = Union[Callable[..., object], ComponentDef]
+
+
+@dataclass(frozen=True)
+class ImportedComponentRef:
+    renderer: "DjuleRenderer"
+    component_name: str
 
 
 @dataclass
@@ -87,7 +97,8 @@ class DjuleRenderer:
         self.renderer_cache = renderer_cache if renderer_cache is not None else {}
         if self.module_path is not None:
             self.renderer_cache[self.module_path] = self
-        self.auto_component_registry: dict[str, Callable[..., SafeHtml]] = {}
+        self.auto_component_registry: dict[str, ImportedComponentRef] = {}
+        self.auto_module_registry: dict[str, "DjuleRenderer"] = {}
         self.imports_loaded = False
 
     @classmethod
@@ -100,7 +111,7 @@ class DjuleRenderer:
         search_paths: list[Path] | None = None,
     ) -> "DjuleRenderer":
         module = DjuleParser.from_source(source).parse()
-        resolved_search_paths = [path.resolve() for path in (search_paths or [])]
+        resolved_search_paths = [path.resolve() for path in (search_paths or cls._default_search_paths())]
         return cls(
             module,
             component_registry=component_registry,
@@ -120,7 +131,7 @@ class DjuleRenderer:
     ) -> "DjuleRenderer":
         resolved_path = Path(path).resolve()
         module = DjuleParser.from_file(resolved_path).parse()
-        resolved_search_paths = [base.resolve() for base in (search_paths or [resolved_path.parent])]
+        resolved_search_paths = [base.resolve() for base in (search_paths or cls._default_search_paths())]
         return cls(
             module,
             component_registry=component_registry,
@@ -129,6 +140,31 @@ class DjuleRenderer:
             search_paths=resolved_search_paths,
             renderer_cache=renderer_cache,
         )
+
+    @classmethod
+    def _default_search_paths(cls) -> list[Path]:
+        """Mirror Python's import-root model as closely as practical.
+
+        Djule absolute imports resolve from a global list of roots, similar to
+        Python's sys.path. The current working directory is represented in
+        sys.path as an empty string, so we normalize that to Path.cwd().
+        """
+        env_paths = os.environ.get("DJULE_PATH")
+        if env_paths:
+            return [Path(entry).resolve() for entry in env_paths.split(os.pathsep) if entry]
+
+        search_paths: list[Path] = []
+        seen: set[Path] = set()
+
+        for entry in sys.path:
+            candidate = Path.cwd() if entry == "" else Path(entry)
+            resolved = candidate.resolve()
+            if resolved in seen or not resolved.exists() or not resolved.is_dir():
+                continue
+            search_paths.append(resolved)
+            seen.add(resolved)
+
+        return search_paths or [Path.cwd().resolve()]
 
     def render(
         self,
@@ -154,6 +190,9 @@ class DjuleRenderer:
 
         if isinstance(component, ComponentDef):
             return self._render_component_def(component, props)
+
+        if isinstance(component, ImportedComponentRef):
+            return component.renderer._render_component_by_name(component.component_name, props)
 
         result = component(**props)
         if isinstance(result, SafeHtml):
@@ -344,7 +383,7 @@ class DjuleRenderer:
         except Exception as exc:  # pragma: no cover - error path exercised by users, not fixtures
             raise RendererError(f"Failed to evaluate expression '{source}': {exc}") from exc
 
-    def _resolve_component(self, name: str) -> ExternalComponent | Callable[..., SafeHtml] | None:
+    def _resolve_component(self, name: str) -> ExternalComponent | ImportedComponentRef | None:
         if name in self.internal_components:
             return self.internal_components[name]
 
@@ -352,7 +391,16 @@ class DjuleRenderer:
             return self.component_registry[name]
 
         self._load_auto_imports()
-        return self.auto_component_registry.get(name)
+        if name in self.auto_component_registry:
+            return self.auto_component_registry[name]
+
+        if "." in name:
+            namespace, component_name = name.rsplit(".", 1)
+            module_renderer = self.auto_module_registry.get(namespace)
+            if module_renderer is not None:
+                return ImportedComponentRef(renderer=module_renderer, component_name=component_name)
+
+        return None
 
     def _load_auto_imports(self) -> None:
         if self.imports_loaded:
@@ -360,14 +408,32 @@ class DjuleRenderer:
 
         for import_node in self.module.imports:
             module_renderer = self._load_imported_module(import_node.module)
-            for name in import_node.names:
-                if name not in module_renderer.internal_components:
-                    raise RendererError(
-                        f"Imported component '{name}' was not found in module '{import_node.module}'"
+            if isinstance(import_node, ImportFrom):
+                for name in import_node.names:
+                    if name not in module_renderer.internal_components:
+                        raise RendererError(
+                            f"Imported component '{name}' was not found in module '{import_node.module}'"
+                        )
+                    self.auto_component_registry[name] = ImportedComponentRef(
+                        renderer=module_renderer,
+                        component_name=name,
                     )
-                self.auto_component_registry[name] = self._bind_imported_component(module_renderer, name)
+                continue
+
+            namespace = self._module_import_namespace(import_node)
+            self.auto_module_registry[namespace] = module_renderer
 
         self.imports_loaded = True
+
+    @staticmethod
+    def _module_import_namespace(import_node: ImportModule) -> str:
+        if import_node.alias:
+            return import_node.alias
+        if import_node.module.startswith("."):
+            raise RendererError(
+                f"Relative module import '{import_node.module}' must use 'as <alias>' to create a usable component namespace"
+            )
+        return import_node.module
 
     def _load_imported_module(self, module_name: str) -> "DjuleRenderer":
         module_path = self._resolve_module_path(module_name)
@@ -429,26 +495,19 @@ class DjuleRenderer:
         searched_paths = ", ".join(str(path) for path in candidates)
         raise RendererError(f"Could not resolve imported module '{module_name}'. Searched: {searched_paths}")
 
-    @staticmethod
-    def _bind_imported_component(
-        renderer: "DjuleRenderer",
-        component_name: str,
-    ) -> Callable[..., SafeHtml]:
-        def render_imported_component(**props: object) -> SafeHtml:
-            return renderer._render_component_by_name(component_name, dict(props))
-
-        return render_imported_component
-
     def _render_resolved_component(
         self,
         component_name: str,
-        component: ExternalComponent | Callable[..., SafeHtml],
+        component: ExternalComponent | ImportedComponentRef,
         props: dict[str, object],
     ) -> SafeHtml:
         self._validate_component_props(component_name, component, props)
 
         if isinstance(component, ComponentDef):
             return self._render_component_def(component, props)
+
+        if isinstance(component, ImportedComponentRef):
+            return component.renderer._render_component_by_name(component.component_name, props)
 
         result = component(**props)
         if isinstance(result, SafeHtml):
@@ -458,7 +517,7 @@ class DjuleRenderer:
     def _validate_component_props(
         self,
         component_name: str,
-        component: ExternalComponent | Callable[..., SafeHtml],
+        component: ExternalComponent | ImportedComponentRef,
         props: dict[str, object],
     ) -> None:
         if "children" in props and not self._component_accepts_children(component):
@@ -467,7 +526,13 @@ class DjuleRenderer:
             )
 
     @staticmethod
-    def _component_accepts_children(component: ExternalComponent | Callable[..., SafeHtml]) -> bool:
+    def _component_accepts_children(component: ExternalComponent | ImportedComponentRef) -> bool:
+        if isinstance(component, ImportedComponentRef):
+            resolved = component.renderer._resolve_component(component.component_name)
+            if resolved is None:
+                return False
+            return component.renderer._component_accepts_children(resolved)
+
         if isinstance(component, ComponentDef):
             return "children" in component.params
 

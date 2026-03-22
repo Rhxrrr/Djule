@@ -8,6 +8,7 @@ class TokenType(str, Enum):
     # Python/top-level tokens
     FROM = "FROM"
     IMPORT = "IMPORT"
+    AS = "AS"
     DEF = "DEF"
     RETURN = "RETURN"
     IF = "IF"

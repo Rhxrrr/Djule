@@ -11,7 +11,7 @@ Define the first usable Djule syntax for Python-based HTML components in Django.
 A Djule component is a Python function that returns HTML-like markup.
 
 ```html
-from components.ui import Button, Card
+from inventory.components.ui import Button, Card
 
 def Page(user, notifications):
     greeting = f"Hello {user.username}" if user.is_authenticated else "Hello guest"
@@ -37,14 +37,23 @@ def Page(user, notifications):
 - use normal Python import syntax
 - components may import other components
 - imported modules and imported components are allowed at the top of the file
-- absolute imports resolve from the Djule search root for the current file
+- absolute imports resolve from Python-like import roots, similar to `sys.path`
 - relative imports use leading dots: `.` for current directory, `..` for parent, `...` for grandparent
+- `from ... import ...` brings component names directly into scope
+- `import ... as alias` creates a component namespace like `<alias.Button>`
+- plain `import inventory.components.ui` keeps the full namespace, so usage becomes `<inventory.components.ui.Button>`
+- relative module imports should use `as alias`, because a leading-dot module path is not usable directly as a tag namespace
+- in practice, this means package-style absolute imports like `from inventory.components.ui import Button`
+- for sibling imports inside a package, prefer relative imports like `from .api.file import thing` or `from ...components.ui import Button`
+- explicit renderer/CLI search paths can still override the default roots when needed
 
 ```html
-from components.ui import Button, Card
-from components.layout import PageShell
-from ..components.ui import Button
+from inventory.components.ui import Button, Card
+from inventory.components.layout import PageShell
+from .api.file import thing
 from ...components.ui import Card
+import inventory.components.ui as ui
+import inventory.components.ui
 ```
 
 ## Components

@@ -70,7 +70,7 @@ Keep the syntax structured, safe, and compilable.
 
 ## Example
 ```html
-from components.ui import Button, Card
+from inventory.components.ui import Button, Card
 
 def Page(user, notifications):
     greeting = f"Hello {user.username}" if user.is_authenticated else "Hello guest"

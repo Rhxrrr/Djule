@@ -16,6 +16,7 @@ from .ast_nodes import (
     ForStmt,
     IfStmt,
     ImportFrom,
+    ImportModule,
     MarkupNode,
     Module,
     PythonExpr,
@@ -67,7 +68,7 @@ class DjuleTreePrinter:
         lines.append(self._branch(prefix, is_last, label))
         child_prefix = self._child_prefix(prefix, is_last)
 
-        if isinstance(node, ImportFrom):
+        if isinstance(node, (ImportFrom, ImportModule)):
             return
 
         if isinstance(node, ComponentDef):
@@ -166,6 +167,10 @@ class DjuleTreePrinter:
         if isinstance(node, ImportFrom):
             names = ", ".join(node.names)
             return f"ImportFrom module={node.module} names=[{names}]"
+        if isinstance(node, ImportModule):
+            if node.alias:
+                return f"ImportModule module={node.module} alias={node.alias}"
+            return f"ImportModule module={node.module}"
         if isinstance(node, ComponentDef):
             params = ", ".join(node.params)
             return f"ComponentDef name={node.name} params=[{params}]"

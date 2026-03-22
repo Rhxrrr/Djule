@@ -1,0 +1,12 @@
+import examples.components.ui as ui
+
+def Page(title):
+    return (
+        <ui.Card>
+            <h1>{title}</h1>
+            <p>Module imports should feel natural too.</p>
+            <ui.Button variant="primary">
+                Continue
+            </ui.Button>
+        </ui.Card>
+    )

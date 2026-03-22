@@ -9,6 +9,7 @@ from .tokens import Token, TokenType
 KEYWORDS = {
     "from": TokenType.FROM,
     "import": TokenType.IMPORT,
+    "as": TokenType.AS,
     "def": TokenType.DEF,
     "return": TokenType.RETURN,
     "if": TokenType.IF,
@@ -301,14 +302,14 @@ class DjuleLexer:
             self.advance()  # /
 
         start = self.index
-        while not self.is_at_end() and (self.peek().isalnum() or self.peek() in {"_", "-"}):
+        while not self.is_at_end() and (self.peek().isalnum() or self.peek() in {"_", "-", "."}):
             self.advance()
 
         name = self.source[start:self.index]
         if not name:
             raise LexerError("Expected tag name", line, column)
 
-        is_component = name[0].isupper()
+        is_component = "." in name or name[0].isupper()
         token_type = {
             (False, False): TokenType.HTML_TAG_OPEN,
             (False, True): TokenType.COMPONENT_TAG_OPEN,

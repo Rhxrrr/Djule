@@ -1,4 +1,4 @@
-from components.layout import PageShell
+from examples.components.layout import PageShell
 
 def DashboardPage(user, notifications, team):
     return (

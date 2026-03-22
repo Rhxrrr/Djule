@@ -36,6 +36,12 @@ class PrinterTests(unittest.TestCase):
         self.assertIn("badge = <p>You have {unread_count} unread notifications.</p>", rendered)
         self.assertIn("<Button variant={button_variant}>Open inbox</Button>", rendered)
 
+    def test_module_import_round_trips_with_alias(self):
+        rendered = self.render("10_module_imports.djule")
+        self.assertIn("import examples.components.ui as ui", rendered)
+        self.assertIn("<ui.Card>", rendered)
+        self.assertIn("<ui.Button variant=\"primary\">Continue</ui.Button>", rendered)
+
     def test_embedded_if_else_round_trips_with_block_syntax(self):
         rendered = self.render("05_embedded_if_else.djule")
         self.assertIn("{", rendered)

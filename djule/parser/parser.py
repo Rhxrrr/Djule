@@ -21,6 +21,7 @@ from .ast_nodes import (
     ForStmt,
     IfStmt,
     ImportFrom,
+    ImportModule,
     MarkupNode,
     Module,
     PythonExpr,
@@ -61,7 +62,7 @@ class DjuleParser:
         return cls(DjuleLexer.from_file(path).tokenize())
 
     def parse(self) -> Module:
-        imports: list[ImportFrom] = []
+        imports = []
         components: list[ComponentDef] = []
 
         self._skip_newlines()
@@ -69,6 +70,8 @@ class DjuleParser:
         while not self._check(TokenType.EOF):
             if self._check(TokenType.FROM):
                 imports.append(self._parse_import_from())
+            elif self._check(TokenType.IMPORT):
+                imports.append(self._parse_import_module())
             elif self._check(TokenType.DEF):
                 components.append(self._parse_component_def())
             else:
@@ -79,6 +82,28 @@ class DjuleParser:
 
     def _parse_import_from(self) -> ImportFrom:
         self._consume(TokenType.FROM, "Expected 'from'")
+        module_name = self._parse_module_reference(allow_empty=True)
+        self._consume(TokenType.IMPORT, "Expected 'import'")
+
+        names = [self._consume(TokenType.NAME, "Expected import name").value]
+        while self._match(TokenType.COMMA):
+            names.append(self._consume(TokenType.NAME, "Expected import name after ','").value)
+
+        self._consume(TokenType.NEWLINE, "Expected newline after import")
+        return ImportFrom(module=module_name, names=names)
+
+    def _parse_import_module(self) -> ImportModule:
+        self._consume(TokenType.IMPORT, "Expected 'import'")
+        module_name = self._parse_module_reference(allow_empty=False)
+
+        alias = None
+        if self._match(TokenType.AS):
+            alias = self._consume(TokenType.NAME, "Expected alias name after 'as'").value
+
+        self._consume(TokenType.NEWLINE, "Expected newline after import")
+        return ImportModule(module=module_name, alias=alias)
+
+    def _parse_module_reference(self, *, allow_empty: bool) -> str:
         relative_level = 0
         while self._match(TokenType.DOT):
             relative_level += 1
@@ -88,20 +113,13 @@ class DjuleParser:
             module_parts.append(self._consume(TokenType.NAME, "Expected module name").value)
             while self._match(TokenType.DOT):
                 module_parts.append(self._consume(TokenType.NAME, "Expected module name after '.'").value)
-        elif relative_level == 0:
+        elif relative_level == 0 or not allow_empty:
             raise self._error("Expected module name")
 
-        self._consume(TokenType.IMPORT, "Expected 'import'")
-
-        names = [self._consume(TokenType.NAME, "Expected import name").value]
-        while self._match(TokenType.COMMA):
-            names.append(self._consume(TokenType.NAME, "Expected import name after ','").value)
-
-        self._consume(TokenType.NEWLINE, "Expected newline after import")
         module_name = "." * relative_level
         if module_parts:
             module_name += ".".join(module_parts)
-        return ImportFrom(module=module_name, names=names)
+        return module_name
 
     def _parse_component_def(self) -> ComponentDef:
         self._consume(TokenType.DEF, "Expected 'def'")

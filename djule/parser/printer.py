@@ -17,6 +17,7 @@ from .ast_nodes import (
     ForStmt,
     IfStmt,
     ImportFrom,
+    ImportModule,
     MarkupNode,
     Module,
     PythonExpr,
@@ -48,7 +49,11 @@ class DjulePrinter:
 
         return "\n".join(lines)
 
-    def _print_import(self, node: ImportFrom) -> str:
+    def _print_import(self, node: ImportFrom | ImportModule) -> str:
+        if isinstance(node, ImportModule):
+            if node.alias:
+                return f"import {node.module} as {node.alias}"
+            return f"import {node.module}"
         names = ", ".join(node.names)
         return f"from {node.module} import {names}"
 

@@ -17,7 +17,7 @@ from .tree_printer import DjuleTreePrinter
 def _usage() -> str:
     return (
         "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render> <path-to-file.djule> "
-        "[--component <name>] [--props '<json-object>']\n"
+        "[--component <name>] [--props '<json-object>'] [--search-path <dir>]\n"
         "Aliases: lexer=tokens, parser=source"
     )
 
@@ -39,6 +39,7 @@ def main() -> int:
     path = Path(sys.argv[2])
     component_name: str | None = None
     props: dict[str, object] = {}
+    search_paths: list[Path] = []
 
     extra_args = sys.argv[3:]
     if mode != "render" and extra_args:
@@ -68,6 +69,12 @@ def main() -> int:
                 print("--props must be a JSON object")
                 return 1
             props = {key: _coerce_cli_value(value) for key, value in loaded.items()}
+        elif option == "--search-path":
+            index += 1
+            if index >= len(extra_args):
+                print("Missing value for --search-path")
+                return 1
+            search_paths.append(Path(extra_args[index]))
         else:
             print(f"Unknown option: {option}")
             print(_usage())
@@ -87,7 +94,8 @@ def main() -> int:
 
     if mode == "render":
         try:
-            print(DjuleRenderer.from_file(path).render(component_name=component_name, props=props))
+            renderer = DjuleRenderer.from_file(path, search_paths=search_paths or None)
+            print(renderer.render(component_name=component_name, props=props))
         except ParserError as exc:
             print(f"Parser error: {exc}")
             return 3

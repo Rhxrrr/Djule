@@ -25,7 +25,7 @@ class TreePrinterTests(unittest.TestCase):
     def test_logic_example_tree_includes_statements_and_markup(self):
         tree = self.render_tree("04_logic_above_return.djule")
 
-        self.assertIn("ImportFrom module=components.ui names=[Button, Card]", tree)
+        self.assertIn("ImportFrom module=examples.components.ui names=[Button, Card]", tree)
         self.assertIn("AssignStmt target=greeting", tree)
         self.assertIn("IfStmt", tree)
         self.assertIn("ElementNode <p>", tree)
@@ -37,6 +37,12 @@ class TreePrinterTests(unittest.TestCase):
         self.assertIn("BlockNode", tree)
         self.assertIn("EmbeddedIfNode", tree)
         self.assertIn("EmbeddedExprNode: f\"Hello {user.username}\"", tree)
+
+    def test_module_import_tree_includes_namespace_import(self):
+        tree = self.render_tree("10_module_imports.djule")
+
+        self.assertIn("ImportModule module=examples.components.ui alias=ui", tree)
+        self.assertIn("ComponentNode <ui.Card>", tree)
 
 
 if __name__ == "__main__":

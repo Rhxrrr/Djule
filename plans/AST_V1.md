@@ -37,7 +37,7 @@ Fields:
 Example:
 
 ```python
-from components.ui import Button, Card
+from inventory.components.ui import Button, Card
 ```
 
 ## Components

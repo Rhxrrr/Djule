@@ -18,6 +18,16 @@ class ImportFrom:
 
 
 @dataclass(frozen=True)
+class ImportModule:
+    module: str
+    alias: str | None = None
+    type: str = field(init=False, default="ImportModule")
+
+
+ImportNode = Union[ImportFrom, ImportModule]
+
+
+@dataclass(frozen=True)
 class AttributeNode:
     name: str
     value: str | PythonExpr
@@ -141,6 +151,6 @@ BlockItem = Union[MarkupNode, EmbeddedAssignNode, EmbeddedIfNode, EmbeddedForNod
 
 @dataclass(frozen=True)
 class Module:
-    imports: list[ImportFrom]
+    imports: list[ImportNode]
     components: list[ComponentDef]
     type: str = field(init=False, default="Module")

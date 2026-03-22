@@ -1,4 +1,4 @@
-from components.ui import Button, Card
+from examples.components.ui import Button, Card
 
 def Page(user):
     return (
