@@ -8,11 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from djule.compiler import DjuleRenderer, RendererError, SafeHtml
-from djule.parser import DjuleParser
-
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+from src.compiler import DjuleRenderer, RendererError, SafeHtml
+from src.parser import DjuleParser
+from tests.fixture_paths import EXAMPLES, example_path
 
 
 def card_component(children: str = "") -> SafeHtml:
@@ -43,14 +41,14 @@ class RendererTests(unittest.TestCase):
         component_name: str | None = None,
     ) -> str:
         renderer = DjuleRenderer.from_file(
-            EXAMPLES / filename,
+            example_path(filename),
             component_registry=component_registry,
             search_paths=search_paths,
         )
         return renderer.render(component_name=component_name, props=props or {})
 
     def load_plan_payload(self, filename: str, component_name: str = "Page") -> dict[str, object]:
-        path = (EXAMPLES / filename).resolve()
+        path = example_path(filename).resolve()
         plan_path = DjuleRenderer._plan_cache_path(path, component_name)
         return json.loads(plan_path.read_text())
 
@@ -67,8 +65,8 @@ class RendererTests(unittest.TestCase):
         self.assertGreater(stats["render_plans"], 0)
 
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
-        first = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
-        second = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+        first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
+        second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
 
         self.assertIs(first.module, second.module)
         self.assertEqual(DjuleRenderer.cache_stats()["parsed_modules"], 1)
@@ -103,14 +101,14 @@ class RendererTests(unittest.TestCase):
         self.assertIn("Second", second_html)
 
     def test_from_file_uses_disk_cached_module_after_memory_cache_is_cleared(self):
-        renderer = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+        renderer = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         html = renderer.render(props={"title": "Hello Djule"})
         self.assertIn("Hello Djule", html)
 
         DjuleRenderer.clear_caches()
 
         with patch.object(DjuleParser, "from_file", side_effect=AssertionError("parser should not run")):
-            cached_renderer = DjuleRenderer.from_file(EXAMPLES / "01_simple_page.djule")
+            cached_renderer = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
             cached_html = cached_renderer.render(props={"title": "Hello Again"})
 
         self.assertIn("Hello Again", cached_html)
@@ -213,7 +211,7 @@ class RendererTests(unittest.TestCase):
         plan_dir = Path(self._cache_dir.name) / "plans"
         plan_files = list(plan_dir.glob("*.json"))
         self.assertEqual(len(plan_files), 1)
-        self.assertTrue(DjuleRenderer._plan_cache_path((EXAMPLES / "02_component_import.djule").resolve(), "Page").exists())
+        self.assertTrue(DjuleRenderer._plan_cache_path(example_path("02_component_import.djule").resolve(), "Page").exists())
         self.assertFalse(DjuleRenderer._plan_cache_path((EXAMPLES / "components/ui.djule").resolve(), "Card").exists())
         self.assertFalse(DjuleRenderer._plan_cache_path((EXAMPLES / "components/ui.djule").resolve(), "Button").exists())
 

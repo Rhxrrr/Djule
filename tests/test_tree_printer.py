@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
-from djule.parser import DjuleParser, DjuleTreePrinter
-
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+from src.parser import DjuleParser, DjuleTreePrinter
+from tests.fixture_paths import example_path
 
 
 class TreePrinterTests(unittest.TestCase):
     def render_tree(self, filename: str) -> str:
-        module = DjuleParser.from_file(EXAMPLES / filename).parse()
+        module = DjuleParser.from_file(example_path(filename)).parse()
         return DjuleTreePrinter().print_module(module)
 
     def test_simple_page_tree_is_hierarchical(self):

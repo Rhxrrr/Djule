@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
-from djule.parser import DjuleParser, ParserError
-from djule.parser.ast_nodes import (
+from src.parser import DjuleParser, ParserError
+from src.parser.ast_nodes import (
     AssignStmt,
     BlockNode,
     ComponentDef,
@@ -20,14 +19,12 @@ from djule.parser.ast_nodes import (
     Module,
     TextNode,
 )
-
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+from tests.fixture_paths import example_path
 
 
 class ParserTests(unittest.TestCase):
     def parse(self, filename: str) -> Module:
-        return DjuleParser.from_file(EXAMPLES / filename).parse()
+        return DjuleParser.from_file(example_path(filename)).parse()
 
     def test_simple_page_parses_module_and_component(self):
         module = self.parse("01_simple_page.djule")

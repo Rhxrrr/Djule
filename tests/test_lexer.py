@@ -1,17 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
-from djule.parser import DjuleLexer, TokenType
-
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+from src.parser import DjuleLexer, TokenType
+from tests.fixture_paths import example_path
 
 
 class LexerTests(unittest.TestCase):
     def lex(self, filename: str):
-        source = (EXAMPLES / filename).read_text()
+        source = example_path(filename).read_text()
         return DjuleLexer(source).tokenize()
 
     def test_simple_page_tokenizes(self):

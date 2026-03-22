@@ -7,9 +7,8 @@ import sys
 import unittest
 from pathlib import Path
 
-
+from tests.fixture_paths import EXAMPLES, example_path
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLES = ROOT / "examples"
 
 
 class ParserCliTests(unittest.TestCase):
@@ -17,7 +16,7 @@ class ParserCliTests(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         return subprocess.run(
-            [sys.executable, "-m", "djule.parser", *args],
+            [sys.executable, "-m", "src.parser", *args],
             cwd=ROOT,
             input=stdin,
             capture_output=True,
@@ -27,7 +26,7 @@ class ParserCliTests(unittest.TestCase):
         )
 
     def test_check_json_succeeds_for_valid_file(self):
-        result = self.run_cli("check-json", str(EXAMPLES / "01_simple_page.djule"))
+        result = self.run_cli("check-json", str(example_path("01_simple_page.djule")))
 
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout), {"ok": True, "diagnostics": []})

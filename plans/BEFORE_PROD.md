@@ -36,7 +36,7 @@ Exit criteria:
 
 ### 2. Lock the Security Model
 
-Right now Djule evaluates template expressions using Python `eval` in [renderer.py](/Users/Rhxrr/Desktop/Repos/Djule/djule/compiler/renderer.py).
+Right now Djule evaluates template expressions using Python `eval` in [renderer.py](/Users/Rhxrr/Desktop/Repos/Djule/src/compiler/renderer.py).
 
 That is acceptable only if Djule templates are treated as trusted application code.
 

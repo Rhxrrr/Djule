@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Union
 
-from djule.parser.ast_nodes import MarkupNode
+from src.parser.ast_nodes import MarkupNode
 
 
 @dataclass(frozen=True)

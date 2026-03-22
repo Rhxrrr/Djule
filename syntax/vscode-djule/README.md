@@ -25,10 +25,10 @@ Make the v1 examples readable in VS Code before building parser-aware semantic h
 2. Or copy/symlink this folder into your local VS Code extensions directory.
 
 ## Live Diagnostics
-- The extension runs `python3 -m djule.parser check-json -` behind the scenes.
+- The extension runs `python3 -m src.parser check-json -` behind the scenes.
 - It sends the current unsaved document text over stdin, so diagnostics update before save.
 - You can override the Python command with the `djule.pythonCommand` VS Code setting.
-- The extension auto-detects the Djule project root by walking upward from the file until it finds the local `djule` package.
+- The extension auto-detects the Djule project root by walking upward from the file until it finds the local `src` package.
 - If auto-detection fails, set `djule.projectRoot` to the absolute repo path.
 - You can disable live checking with the `djule.liveSyntax` setting.
 

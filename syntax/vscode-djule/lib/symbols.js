@@ -1,0 +1,169 @@
+const fs = require("fs");
+
+const {
+  ASSIGNMENT_RE,
+  COMPONENT_DEF_RE,
+  FOR_TARGET_RE,
+  IMPORT_FROM_RE,
+  IMPORT_MODULE_RE,
+} = require("./constants");
+const { resolveImportedModulePath } = require("./runtime");
+
+const moduleSignatureCache = new Map();
+
+function collectDocumentSymbols(document, runtimeRoot) {
+  const source = document.getText();
+  const components = extractComponentSignatures(source);
+  const importedComponents = extractImportedComponents(document, source, runtimeRoot);
+
+  for (const [name, params] of importedComponents.directComponents) {
+    components.set(name, params);
+  }
+
+  return {
+    components,
+    namespacedModules: importedComponents.namespacedModules,
+  };
+}
+
+function collectCodeNames(document, position, symbols) {
+  const names = new Set();
+  const source = document.getText();
+  const componentContext = componentContextAtPosition(document, position, source);
+
+  if (componentContext) {
+    for (const param of componentContext.params) {
+      names.add(param);
+    }
+
+    const componentSourcePrefix = source.slice(componentContext.bodyStartOffset, document.offsetAt(position));
+    for (const match of componentSourcePrefix.matchAll(ASSIGNMENT_RE)) {
+      names.add(match[1]);
+    }
+    for (const match of componentSourcePrefix.matchAll(FOR_TARGET_RE)) {
+      names.add(match[1]);
+    }
+  }
+
+  for (const componentName of symbols.components.keys()) {
+    names.add(componentName);
+  }
+
+  for (const namespace of symbols.namespacedModules.keys()) {
+    names.add(namespace);
+  }
+
+  return names;
+}
+
+function lookupComponentSignature(componentName, symbols) {
+  if (componentName.includes(".")) {
+    const parts = componentName.split(".");
+    const name = parts.pop();
+    const namespace = parts.join(".");
+    const moduleComponents = symbols.namespacedModules.get(namespace);
+    return moduleComponents ? moduleComponents.get(name) : null;
+  }
+  return symbols.components.get(componentName) || null;
+}
+
+function extractComponentSignatures(source) {
+  const components = new Map();
+  for (const match of source.matchAll(COMPONENT_DEF_RE)) {
+    const name = match[1];
+    const params = match[2]
+      .split(",")
+      .map((param) => param.trim())
+      .filter(Boolean);
+    components.set(name, params);
+  }
+  return components;
+}
+
+function loadModuleComponentSignatures(modulePath) {
+  const resolved = modulePath ? require("path").resolve(modulePath) : null;
+  if (!resolved || !fs.existsSync(resolved)) {
+    return new Map();
+  }
+
+  const stats = fs.statSync(resolved);
+  const cached = moduleSignatureCache.get(resolved);
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.signatures;
+  }
+
+  const signatures = extractComponentSignatures(fs.readFileSync(resolved, "utf8"));
+  moduleSignatureCache.set(resolved, {
+    mtimeMs: stats.mtimeMs,
+    size: stats.size,
+    signatures,
+  });
+  return signatures;
+}
+
+function componentContextAtPosition(document, position, source) {
+  const currentOffset = document.offsetAt(position);
+  const componentMatches = Array.from(source.matchAll(COMPONENT_DEF_RE));
+
+  for (let index = 0; index < componentMatches.length; index += 1) {
+    const match = componentMatches[index];
+    const startOffset = match.index ?? 0;
+    const endOffset = index + 1 < componentMatches.length ? componentMatches[index + 1].index ?? source.length : source.length;
+
+    if (currentOffset < startOffset || currentOffset > endOffset) {
+      continue;
+    }
+
+    return {
+      name: match[1],
+      params: match[2]
+        .split(",")
+        .map((param) => param.trim())
+        .filter(Boolean),
+      bodyStartOffset: startOffset,
+      endOffset,
+    };
+  }
+
+  return null;
+}
+
+function extractImportedComponents(document, source, runtimeRoot) {
+  const directComponents = new Map();
+  const namespacedModules = new Map();
+
+  for (const match of source.matchAll(IMPORT_FROM_RE)) {
+    const moduleName = match[1];
+    const importedNames = match[2].split(",").map((name) => name.trim()).filter(Boolean);
+    const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+    if (!modulePath) {
+      continue;
+    }
+    const signatures = loadModuleComponentSignatures(modulePath);
+    for (const importedName of importedNames) {
+      if (signatures.has(importedName)) {
+        directComponents.set(importedName, signatures.get(importedName));
+      }
+    }
+  }
+
+  for (const match of source.matchAll(IMPORT_MODULE_RE)) {
+    const moduleName = match[1];
+    const alias = match[2] || moduleName;
+    const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+    if (!modulePath) {
+      continue;
+    }
+    namespacedModules.set(alias, loadModuleComponentSignatures(modulePath));
+  }
+
+  return { directComponents, namespacedModules };
+}
+
+module.exports = {
+  collectCodeNames,
+  collectDocumentSymbols,
+  extractComponentSignatures,
+  loadModuleComponentSignatures,
+  lookupComponentSignature,
+};

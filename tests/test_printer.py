@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import textwrap
 import unittest
-from pathlib import Path
 
-from djule.parser import DjuleParser, DjulePrinter
-
-
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+from src.parser import DjuleParser, DjulePrinter
+from tests.fixture_paths import example_path
 
 
 class PrinterTests(unittest.TestCase):
     def render(self, filename: str) -> str:
-        module = DjuleParser.from_file(EXAMPLES / filename).parse()
+        module = DjuleParser.from_file(example_path(filename)).parse()
         return DjulePrinter().print_module(module)
 
     def test_simple_page_round_trips_to_expected_source(self):

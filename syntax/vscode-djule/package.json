@@ -59,7 +59,7 @@
         "djule.projectRoot": {
           "type": "string",
           "default": "",
-          "description": "Optional absolute path to the Djule project root. Use this if automatic root detection does not find the local djule package."
+          "description": "Optional absolute path to the Djule project root. Use this if automatic root detection does not find the local src package."
         }
       }
     }
