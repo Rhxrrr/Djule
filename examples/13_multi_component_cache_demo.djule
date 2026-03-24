@@ -1,0 +1,44 @@
+from examples.components.ui import Button, Card
+
+def InfoBlock(title, children):
+    return (
+        <section class="info-block">
+            <h2>{title}</h2>
+            <div class="info-body">
+                {children}
+            </div>
+        </section>
+    )
+
+def Page(user_name):
+    return (
+        <main class="dashboard">
+            <Card>
+                <h1>Hello {user_name}</h1>
+                <p>This intro is static and should be cached with the note below.</p>
+                <section class="hero-note">
+                    <span>Shared static fragment</span>
+                </section>
+            </Card>
+
+            <InfoBlock title="Actions">
+                <p>This section is fully static once the literal title is applied.</p>
+                <div class="action-row">
+                    <Button variant="primary">
+                        Open reports
+                    </Button>
+                    <Button variant="secondary">
+                        Review logs
+                    </Button>
+                </div>
+            </InfoBlock>
+
+            <InfoBlock title="Status">
+                <p>Everything in this block is static too.</p>
+                <ul class="status-list">
+                    <li>Build cache enabled</li>
+                    <li>Static batching enabled</li>
+                </ul>
+            </InfoBlock>
+        </main>
+    )

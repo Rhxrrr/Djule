@@ -1,0 +1,22 @@
+from examples.components.ui import Card
+
+def Page(user):
+    return (
+        <Card>
+            <h1>
+                {
+                    if user.is_authenticated:
+                        f"Hello {user.username}"
+                    else:
+                        "Hello guest"
+                }
+            </h1>
+
+            {
+                if user.is_authenticated:
+                    <p>Your account is active.</p>
+                else:
+                    <p>Please sign in to continue.</p>
+            }
+        </Card>
+    )

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djule"
+version = "0.1.0a1"
+description = "Python-first server-rendered templating experiment"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Rhxrr" }]
+license = { file = "LICENSE" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Framework :: Django",
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+]
+dependencies = []
+
+[project.scripts]
+djule = "djule.parser.__main__:main"
+
+[project.optional-dependencies]
+django = ["Django>=4.2"]
+test = ["Django>=4.2"]
+dev = ["Django>=4.2"]
+
+[project.urls]
+Repository = "https://github.com/Rhxrrr/Djule"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["djule", "djule.*"]

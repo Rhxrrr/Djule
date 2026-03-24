@@ -1,0 +1,12 @@
+def PageShell(user, team, children):
+    return (
+        <div class="page-shell">
+            <header class="page-header">
+                <h2>{team.name}</h2>
+                <span>{user.username}</span>
+            </header>
+            <main class="page-content">
+                {children}
+            </main>
+        </div>
+    )

@@ -1,0 +1,24 @@
+from examples.components.layout import PageShell
+
+def DashboardPage(user, notifications, team):
+    return (
+        <PageShell user={user} team={team}>
+            <h1>Hello {user.username}</h1>
+            <p>You are viewing the {team.name} dashboard.</p>
+
+            {
+                if len(notifications) > 0:
+                    <p>You have {len(notifications)} notifications.</p>
+                else:
+                    <p>No new notifications.</p>
+            }
+        </PageShell>
+    )
+
+# Django intent:
+#
+# render_djule(request, "examples/08_django_request_props.djule", {
+#     "user": request.user,
+#     "notifications": notifications,
+#     "team": current_team,
+# })

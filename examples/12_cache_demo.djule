@@ -1,0 +1,12 @@
+from examples.components.ui import Card
+
+def Page(title):
+    return (
+        <Card>
+            <h1>{title}</h1>
+            <p>This paragraph Different is static and should be cached to disk.</p>
+            <section class="cache-note">
+                <span>Static badge</span>
+            </section>
+        </Card>
+    )

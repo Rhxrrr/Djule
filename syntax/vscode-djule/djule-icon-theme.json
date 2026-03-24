@@ -1,0 +1,10 @@
+{
+  "iconDefinitions": {
+    "_djule": {
+      "iconPath": "./icons/djule-emerald-sleek.svg"
+    }
+  },
+  "fileExtensions": {
+    "djule": "_djule"
+  }
+}

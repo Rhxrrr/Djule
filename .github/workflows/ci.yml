@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and test extras
+        run: python -m pip install --upgrade pip && python -m pip install -e .[test]
+
+      - name: Run Python tests
+        run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check VS Code extension syntax
+        run: |
+          node --check syntax/vscode-djule/extension.js
+          node --check syntax/vscode-djule/lib/constants.js
+          node --check syntax/vscode-djule/lib/runtime.js
+          node --check syntax/vscode-djule/lib/symbols.js
+          node --check syntax/vscode-djule/lib/completions.js
+          node --check syntax/vscode-djule/lib/diagnostics.js
