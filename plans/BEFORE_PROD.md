@@ -93,7 +93,7 @@ Implemented:
 
 ### 6. Package and Release the Project Properly
 
-Status: Implemented for private-alpha distribution
+Status: Implemented for initial open-source distribution
 
 Before production, Djule should be installable and testable like a real library.
 

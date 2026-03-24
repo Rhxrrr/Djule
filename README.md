@@ -9,6 +9,8 @@ It currently includes:
 - a VS Code extension for syntax, diagnostics, and completions
 - an optional Django integration layer
 
+Djule is licensed under [Apache License 2.0](/Users/Rhxrr/Desktop/Repos/Djule/LICENSE).
+
 ## Installation
 
 Install the package locally:
