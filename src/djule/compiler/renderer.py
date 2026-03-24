@@ -4,13 +4,13 @@ from pathlib import Path
 from types import CodeType
 from typing import ClassVar, Mapping
 
-from src.compiler.cache_support import DjuleCacheMixin
-from src.compiler.import_support import DjuleImportMixin
-from src.compiler.plan_support import DjulePlanMixin
-from src.compiler.render_plan import ComponentPlan
-from src.compiler.render_support import DjuleRenderMixin
-from src.compiler.types import ExternalComponent, ImportedComponentRef, RendererError, SafeHtml
-from src.parser.ast_nodes import Module
+from djule.compiler.cache_support import DjuleCacheMixin
+from djule.compiler.import_support import DjuleImportMixin
+from djule.compiler.plan_support import DjulePlanMixin
+from djule.compiler.render_plan import ComponentPlan
+from djule.compiler.render_support import DjuleRenderMixin
+from djule.compiler.types import ExternalComponent, ImportedComponentRef, RendererError, SafeHtml
+from djule.parser.ast_nodes import Module
 
 
 class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRenderMixin):

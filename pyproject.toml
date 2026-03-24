@@ -18,6 +18,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+djule = "djule.parser.__main__:main"
+
 [project.optional-dependencies]
 django = ["Django>=4.2"]
 test = ["Django>=4.2"]
@@ -26,9 +29,10 @@ dev = ["Django>=4.2"]
 [project.urls]
 Repository = "https://github.com/Rhxrrr/Djule"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src", "src.*"]
-
 [tool.setuptools]
+package-dir = {"" = "src"}
 include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["djule", "djule.*"]

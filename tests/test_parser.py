@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from src.parser import DjuleParser, ParserError
-from src.parser.ast_nodes import (
+from djule.parser import DjuleParser, ParserError
+from djule.parser.ast_nodes import (
     AssignStmt,
     BlockNode,
     ComponentDef,

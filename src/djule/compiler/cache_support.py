@@ -8,8 +8,8 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from src.compiler.render_plan import AttrExprPart, ComponentPlan, ExprPart, NodePart, StaticPart
-from src.parser.ast_nodes import (
+from djule.compiler.render_plan import AttrExprPart, ComponentPlan, ExprPart, NodePart, StaticPart
+from djule.parser.ast_nodes import (
     AssignStmt,
     AttributeNode,
     BlockNode,
@@ -31,7 +31,7 @@ from src.parser.ast_nodes import (
     ReturnStmt,
     TextNode,
 )
-from src.parser.parser import DjuleParser
+from djule.parser.parser import DjuleParser
 
 
 class DjuleCacheMixin:

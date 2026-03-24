@@ -38,7 +38,7 @@ function registerDiagnostics(context) {
 
     const child = cp.spawn(
       pythonCommand,
-      ["-m", "src.parser", "check-json", "-", "--document-path", document.uri.fsPath],
+      ["-m", "djule.parser", "check-json", "-", "--document-path", document.uri.fsPath],
       {
         cwd: runtimeRoot.cwd,
         env: {

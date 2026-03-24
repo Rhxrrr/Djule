@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.integrations.django import get_djule_search_paths, render_djule, resolve_djule_template
+from djule.integrations.django import get_djule_search_paths, render_djule, resolve_djule_template
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +53,7 @@ class DjangoIntegrationTests(unittest.TestCase):
             )
             django.setup()
 
-        from src.integrations.django import render_djule_response
+        from djule.integrations.django import render_djule_response
 
         response = render_djule_response(
             HttpRequest(),

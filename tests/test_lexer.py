@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.parser import DjuleLexer, TokenType
+from djule.parser import DjuleLexer, TokenType
 from tests.fixture_paths import example_path
 
 

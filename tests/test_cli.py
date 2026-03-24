@@ -16,7 +16,7 @@ class ParserCliTests(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         return subprocess.run(
-            [sys.executable, "-m", "src.parser", *args],
+            [sys.executable, "-m", "djule.parser", *args],
             cwd=ROOT,
             input=stdin,
             capture_output=True,

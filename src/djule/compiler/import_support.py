@@ -3,8 +3,8 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-from src.compiler.types import ImportedComponentRef, RendererError, SafeHtml
-from src.parser.ast_nodes import ComponentDef, ImportFrom, ImportModule
+from djule.compiler.types import ImportedComponentRef, RendererError, SafeHtml
+from djule.parser.ast_nodes import ComponentDef, ImportFrom, ImportModule
 
 
 class DjuleImportMixin:

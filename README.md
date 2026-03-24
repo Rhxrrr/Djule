@@ -9,29 +9,65 @@ It currently includes:
 - a VS Code extension for syntax, diagnostics, and completions
 - an optional Django integration layer
 
+## Installation
+
+Install the package locally:
+
+```bash
+python3 -m pip install .
+```
+
+Install with Django helpers:
+
+```bash
+python3 -m pip install '.[django]'
+```
+
+For local development:
+
+```bash
+python3 -m pip install -e '.[dev]'
+```
+
 ## Local Development
+
+Install the editable dev environment:
+
+```bash
+make install-dev
+```
 
 Run the Python test suite:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+make test
 ```
 
 Run the parser CLI:
 
 ```bash
-python3 -m src.parser check-json tests/fixtures/01_simple_page.djule
-python3 -m src.parser render tests/fixtures/01_simple_page.djule --props '{"title":"Hello Djule"}'
+python3 -m djule.parser check-json tests/fixtures/01_simple_page.djule
+python3 -m djule.parser render tests/fixtures/01_simple_page.djule --props '{"title":"Hello Djule"}'
+djule render tests/fixtures/01_simple_page.djule --props '{"title":"Hello Djule"}'
+```
+
+Useful maintenance commands:
+
+```bash
+make check
+make build
+make clean
+make clean-cache
 ```
 
 ## Django Integration
 
-Djule ships a small Django-facing API in [src/integrations/django.py](/Users/Rhxrr/Desktop/Repos/Djule/src/integrations/django.py).
+Djule ships a small Django-facing API in [src/djule/integrations/django.py](/Users/Rhxrr/Desktop/Repos/Djule/src/djule/integrations/django.py).
 
 Example:
 
 ```python
-from src.integrations.django import render_djule_response
+from djule.integrations.django import render_djule_response
 
 
 def dashboard_view(request):

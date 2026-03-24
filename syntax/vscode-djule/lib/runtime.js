@@ -225,10 +225,12 @@ function nextModuleSegments(modules, modulePrefix) {
 
 function looksLikeDjuleProjectRoot(candidate) {
   return (
-    (fs.existsSync(path.join(candidate, "src", "__init__.py")) &&
-      fs.existsSync(path.join(candidate, "src", "parser", "__main__.py"))) ||
+    (fs.existsSync(path.join(candidate, "src", "djule", "__init__.py")) &&
+      fs.existsSync(path.join(candidate, "src", "djule", "parser", "__main__.py"))) ||
     (fs.existsSync(path.join(candidate, "djule", "__init__.py")) &&
-      fs.existsSync(path.join(candidate, "djule", "parser", "__main__.py")))
+      fs.existsSync(path.join(candidate, "djule", "parser", "__main__.py"))) ||
+    (fs.existsSync(path.join(candidate, "src", "__init__.py")) &&
+      fs.existsSync(path.join(candidate, "src", "parser", "__main__.py")))
   );
 }
 

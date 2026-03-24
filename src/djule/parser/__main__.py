@@ -6,7 +6,7 @@ from pathlib import Path
 from pprint import pprint
 from types import SimpleNamespace
 
-from src.compiler import DjuleRenderer, RendererError
+from djule.compiler import DjuleRenderer, RendererError
 
 from .analyzer import DjuleAnalyzer
 from .lexer import DjuleLexer, LexerError
@@ -17,7 +17,7 @@ from .tree_printer import DjuleTreePrinter
 
 def _usage() -> str:
     return (
-        "Usage: python -m src.parser <lexer|parser|ast|ast-raw|render|check-json> <path-to-file.djule|-> "
+        "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render|check-json> <path-to-file.djule|-> "
         "[--component <name>] [--props '<json-object>'] [--search-path <dir>] [--document-path <file>]\n"
         "Aliases: lexer=tokens, parser=source"
     )

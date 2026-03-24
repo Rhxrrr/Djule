@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Mapping, Sequence
 
-from src.compiler import DjuleRenderer
+from djule.compiler import DjuleRenderer
 
 
 def _get_settings(settings_obj=None):

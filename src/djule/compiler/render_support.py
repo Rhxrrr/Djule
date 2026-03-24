@@ -4,9 +4,9 @@ import ast
 from html import escape
 from typing import Mapping
 
-from src.compiler.render_plan import AttrExprPart, ComponentPlan, ExprPart, NodePart, PlanPart, StaticPart
-from src.compiler.types import ImportedComponentRef, RendererError, SafeHtml
-from src.parser.ast_nodes import (
+from djule.compiler.render_plan import AttrExprPart, ComponentPlan, ExprPart, NodePart, PlanPart, StaticPart
+from djule.compiler.types import ImportedComponentRef, RendererError, SafeHtml
+from djule.parser.ast_nodes import (
     AssignStmt,
     AttributeNode,
     BlockItem,

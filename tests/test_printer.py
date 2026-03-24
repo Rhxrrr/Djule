@@ -3,7 +3,7 @@ from __future__ import annotations
 import textwrap
 import unittest
 
-from src.parser import DjuleParser, DjulePrinter
+from djule.parser import DjuleParser, DjulePrinter
 from tests.fixture_paths import example_path
 
 

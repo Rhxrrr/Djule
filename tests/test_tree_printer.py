@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.parser import DjuleParser, DjuleTreePrinter
+from djule.parser import DjuleParser, DjuleTreePrinter
 from tests.fixture_paths import example_path
 
 

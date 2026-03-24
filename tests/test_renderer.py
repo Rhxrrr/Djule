@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from src.compiler import DjuleRenderer, RendererError, SafeHtml
-from src.parser import DjuleParser
+from djule.compiler import DjuleRenderer, RendererError, SafeHtml
+from djule.parser import DjuleParser
 from tests.fixture_paths import EXAMPLES, example_path
 
 

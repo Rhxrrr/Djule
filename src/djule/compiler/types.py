@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Union
 
-from src.parser.ast_nodes import ComponentDef
+from djule.parser.ast_nodes import ComponentDef
 
 
 class SafeHtml(str):
