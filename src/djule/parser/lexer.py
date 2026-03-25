@@ -3,25 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .tokens import Token, TokenType
-
-
-KEYWORDS = {
-    "from": TokenType.FROM,
-    "import": TokenType.IMPORT,
-    "as": TokenType.AS,
-    "def": TokenType.DEF,
-    "return": TokenType.RETURN,
-    "if": TokenType.IF,
-    "else": TokenType.ELSE,
-    "for": TokenType.FOR,
-    "in": TokenType.IN,
-    "not": TokenType.NOT,
-}
-
-MULTI_CHAR_OPERATORS = ("+=", "==", "!=", ">=", "<=")
-SINGLE_CHAR_OPERATORS = {"+", "-", "*", "/", ">", "<"}
-STRING_PREFIX_CHARS = set("fFrRuUbB")
+from .tokens import (
+    MULTI_CHAR_OPERATORS,
+    SINGLE_CHAR_OPERATORS,
+    STRING_PREFIX_CHARS,
+    Token,
+    TokenType,
+)
 
 
 @dataclass
@@ -35,10 +23,11 @@ class LexerError(Exception):
 
 
 class DjuleLexer:
-    """Tokenizer for the Djule happy-path syntax.
+    """Tokenizes Djule source into Python-like and markup tokens.
 
-    V1 intentionally keeps expressions as source strings and focuses on the
-    subset needed by the first example files.
+    Djule treats most embedded Python expressions as source text rather than
+    building a full Python expression tree at lex time, which keeps the lexer
+    focused on source boundaries and Djule-specific syntax.
     """
 
     def __init__(self, source: str) -> None:
@@ -155,7 +144,7 @@ class DjuleLexer:
         while not self.is_at_end() and (self.peek().isalnum() or self.peek() == "_"):
             self.advance()
         value = self.source[start:self.index]
-        token_type = KEYWORDS.get(value, TokenType.NAME)
+        token_type = TokenType.from_identifier(value)
         self.tokens.append(Token(token_type, value, line, column))
 
     def _lex_number(self) -> None:
@@ -371,6 +360,7 @@ class DjuleLexer:
 
     def _lex_markup_expression(self) -> None:
         line, column = self.line, self.column
+        self.tokens.append(Token(TokenType.LBRACE, "{", line, column))
         self.advance()  # {
         depth = 1
         chars: list[str] = []
@@ -405,8 +395,8 @@ class DjuleLexer:
             if ch == "}":
                 depth -= 1
                 if depth == 0:
-                    expression = "".join(chars).strip()
-                    self.tokens.append(Token(TokenType.EXPR, expression, line, column))
+                    self._emit_embedded_source_tokens("".join(chars), line, column)
+                    self.tokens.append(Token(TokenType.RBRACE, "}", self.line, self.column - 1))
                     return
                 chars.append(ch)
                 continue
@@ -414,6 +404,22 @@ class DjuleLexer:
             chars.append(ch)
 
         raise LexerError("Unterminated markup expression", line, column)
+
+    def _emit_embedded_source_tokens(self, source: str, line: int, column: int) -> None:
+        inner_lexer = DjuleLexer(source)
+        inner_lexer.at_line_start = False
+        inner_tokens = inner_lexer.tokenize()
+
+        if inner_tokens and inner_tokens[-1].type == TokenType.EOF:
+            inner_tokens.pop()
+
+        if source and not source.endswith("\n") and inner_tokens and inner_tokens[-1].type == TokenType.NEWLINE:
+            inner_tokens.pop()
+
+        for token in inner_tokens:
+            mapped_line = line + token.line - 1
+            mapped_column = column + token.column if token.line == 1 else token.column
+            self.tokens.append(Token(token.type, token.value, mapped_line, mapped_column))
 
     def _lex_markup_text(self) -> None:
         line, column = self.line, self.column

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 from enum import Enum
 
 
@@ -16,7 +17,7 @@ class TokenType(str, Enum):
     FOR = "FOR"
     IN = "IN"
     NOT = "NOT"
-    NAME = "NAME"
+    NAME = "NAME"  # component, function, param, module, import, and local variable names
     STRING = "STRING"
     NUMBER = "NUMBER"
     LPAREN = "LPAREN"
@@ -29,22 +30,46 @@ class TokenType(str, Enum):
     COMMA = "COMMA"
     DOT = "DOT"
     EQUALS = "EQUALS"
-    OPERATOR = "OPERATOR"
+    OPERATOR = "OPERATOR"  # +=, ==, !=, >=, <=, +, -, *, /, >, <
     NEWLINE = "NEWLINE"
     INDENT = "INDENT"
     DEDENT = "DEDENT"
 
     # Markup tokens
-    HTML_TAG_OPEN = "HTML_TAG_OPEN"
-    HTML_TAG_CLOSE = "HTML_TAG_CLOSE"
-    COMPONENT_TAG_OPEN = "COMPONENT_TAG_OPEN"
-    COMPONENT_TAG_CLOSE = "COMPONENT_TAG_CLOSE"
-    TAG_END = "TAG_END"
-    ATTR_NAME = "ATTR_NAME"
-    TEXT = "TEXT"
-    EXPR = "EXPR"
+    HTML_TAG_OPEN = "HTML_TAG_OPEN"  # opening HTML tag name token (e.g. "div" from <div>)
+    HTML_TAG_CLOSE = "HTML_TAG_CLOSE"  # closing HTML tag name token (e.g. "div" from </div>)
+    COMPONENT_TAG_OPEN = "COMPONENT_TAG_OPEN"  # opening component tag name token (e.g. "Button")
+    COMPONENT_TAG_CLOSE = "COMPONENT_TAG_CLOSE"  # closing component tag name token (e.g. "Button")
+    TAG_END = "TAG_END"  # literal ">" that ends an opening/closing tag
+    ATTR_NAME = "ATTR_NAME"  # attribute name inside a tag (e.g. class, id, custom props)
+    TEXT = "TEXT"  # plain text content inside markup
+    EXPR = "EXPR"  # embedded expression inside markup: { python_expression }
 
-    EOF = "EOF"
+    EOF = "EOF"  # end of file
+
+    @classmethod
+    @cache # avoids rebuilding the dict on every call
+    def _identifier_map(cls) -> dict[str, "TokenType"]:
+        return {
+            "from": cls.FROM,
+            "import": cls.IMPORT,
+            "as": cls.AS,
+            "def": cls.DEF,
+            "return": cls.RETURN,
+            "if": cls.IF,
+            "else": cls.ELSE,
+            "for": cls.FOR,
+            "in": cls.IN,
+            "not": cls.NOT,
+        }
+
+    @classmethod
+    def from_identifier(cls, value: str) -> "TokenType":
+        return cls._identifier_map().get(value, cls.NAME)
+
+MULTI_CHAR_OPERATORS = ("+=", "==", "!=", ">=", "<=")
+SINGLE_CHAR_OPERATORS = {"+", "-", "*", "/", ">", "<"}
+STRING_PREFIX_CHARS = set("fFrRuUbB")
 
 
 @dataclass(frozen=True)

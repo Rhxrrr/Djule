@@ -14,11 +14,14 @@ class LexerTests(unittest.TestCase):
     def test_simple_page_tokenizes(self):
         tokens = self.lex("01_simple_page.djule")
         token_types = [token.type for token in tokens]
+        values = [token.value for token in tokens]
 
         self.assertIn(TokenType.DEF, token_types)
         self.assertIn(TokenType.HTML_TAG_OPEN, token_types)
         self.assertIn(TokenType.TEXT, token_types)
-        self.assertIn(TokenType.EXPR, token_types)
+        self.assertIn(TokenType.LBRACE, token_types)
+        self.assertIn(TokenType.RBRACE, token_types)
+        self.assertIn("title", values)
         self.assertEqual(tokens[-1].type, TokenType.EOF)
 
     def test_component_import_tokenizes(self):

@@ -241,21 +241,13 @@ class DjuleParser:
             return self._parse_element_node()
         if self._check(TokenType.COMPONENT_TAG_OPEN):
             return self._parse_component_node()
+        if self._check(TokenType.LBRACE):
+            return self._parse_braced_markup_node()
         if self._check(TokenType.TEXT):
             return TextNode(value=self._advance().value)
         if self._check(TokenType.EXPR):
             token = self._advance()
-            source = token.value
-            if self._is_embedded_block_source(source):
-                return self._parse_embedded_block_source(source, token)
-            if self._looks_like_malformed_embedded_block(source):
-                line, column = self._embedded_error_location(source, token, 1, 1)
-                raise ParserError(
-                    message="Expected embedded block to start with 'if', 'for', or an assignment",
-                    token=Token(type=token.type, value=token.value, line=line, column=column),
-                )
-            self._validate_python_expression(source, token, "Invalid Python expression inside '{...}'")
-            return ExpressionNode(source=source, line=token.line, column=token.column)
+            return self._parse_legacy_expr_token(token)
         raise self._error("Expected markup node")
 
     def _parse_element_node(self) -> ElementNode:
@@ -294,6 +286,8 @@ class DjuleParser:
             self._consume(TokenType.EQUALS, "Expected '=' after attribute name")
             if self._check(TokenType.STRING):
                 value: str | PythonExpr = self._advance().value
+            elif self._check(TokenType.LBRACE):
+                value = self._parse_braced_python_expr()
             elif self._check(TokenType.EXPR):
                 token = self._advance()
                 value = PythonExpr(source=token.value, line=token.line, column=token.column)
@@ -301,6 +295,66 @@ class DjuleParser:
                 raise self._error("Expected string or {expr} attribute value")
             attributes.append(AttributeNode(name=name, value=value))
         return attributes
+
+    def _parse_braced_markup_node(self) -> MarkupNode:
+        open_token = self._consume(TokenType.LBRACE, "Expected '{' before embedded expression")
+        inner_tokens = self._collect_tokens_until({TokenType.RBRACE})
+        self._consume(TokenType.RBRACE, "Expected '}' after embedded expression")
+
+        if not inner_tokens:
+            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token)
+
+        source = self._tokens_to_source(inner_tokens)
+        first_token = self._first_meaningful_token(inner_tokens) or open_token
+
+        if self._is_embedded_block_source(source):
+            return self._parse_embedded_block_tokens(inner_tokens, first_token)
+        if self._looks_like_malformed_embedded_block(source):
+            raise ParserError(
+                message="Expected embedded block to start with 'if', 'for', or an assignment",
+                token=first_token,
+            )
+
+        self._validate_python_expression(source, first_token, "Invalid Python expression inside '{...}'")
+        return ExpressionNode(source=source, line=open_token.line, column=open_token.column)
+
+    def _parse_braced_python_expr(self) -> PythonExpr:
+        open_token = self._consume(TokenType.LBRACE, "Expected '{' before attribute expression")
+        inner_tokens = self._collect_tokens_until({TokenType.RBRACE})
+        self._consume(TokenType.RBRACE, "Expected '}' after attribute expression")
+
+        if not inner_tokens:
+            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token)
+
+        first_token = self._first_meaningful_token(inner_tokens) or open_token
+        source = self._tokens_to_source(inner_tokens)
+        self._validate_python_expression(source, first_token, "Invalid Python expression inside '{...}'")
+        return PythonExpr(source=source, line=open_token.line, column=open_token.column)
+
+    def _parse_legacy_expr_token(self, token: Token) -> MarkupNode:
+        source = token.value
+        if self._is_embedded_block_source(source):
+            return self._parse_embedded_block_source(source, token)
+        if self._looks_like_malformed_embedded_block(source):
+            line, column = self._embedded_error_location(source, token, 1, 1)
+            raise ParserError(
+                message="Expected embedded block to start with 'if', 'for', or an assignment",
+                token=Token(type=token.type, value=token.value, line=line, column=column),
+            )
+        self._validate_python_expression(source, token, "Invalid Python expression inside '{...}'")
+        return ExpressionNode(source=source, line=token.line, column=token.column)
+
+    def _parse_embedded_block_tokens(self, tokens: list[Token], origin: Token) -> BlockNode:
+        normalized_tokens = self._normalize_embedded_block_tokens(tokens)
+        parser = DjuleParser(
+            normalized_tokens + [Token(type=TokenType.EOF, value="", line=origin.line, column=origin.column)]
+        )
+        try:
+            return parser.parse_embedded_block()
+        except ParserError:
+            raise
+        except LexerError as exc:
+            raise ParserError(message=exc.message, token=origin) from exc
 
     def _parse_children_until(self, close_type: TokenType, close_name: str) -> list[MarkupNode]:
         children = []
@@ -461,6 +515,14 @@ class DjuleParser:
 
         previous: Token | None = None
         for token in tokens:
+            if token.type == TokenType.NEWLINE:
+                parts.append("\n")
+                previous = None
+                continue
+
+            if token.type in {TokenType.INDENT, TokenType.DEDENT}:
+                continue
+
             if not parts:
                 parts.append(token.value)
                 previous = token
@@ -482,7 +544,43 @@ class DjuleParser:
         return "".join(parts)
 
     def _starts_markup_node(self) -> bool:
-        return self._check_any({TokenType.HTML_TAG_OPEN, TokenType.COMPONENT_TAG_OPEN, TokenType.TEXT, TokenType.EXPR})
+        return self._check_any(
+            {
+                TokenType.HTML_TAG_OPEN,
+                TokenType.COMPONENT_TAG_OPEN,
+                TokenType.TEXT,
+                TokenType.EXPR,
+                TokenType.LBRACE,
+            }
+        )
+
+    @staticmethod
+    def _first_meaningful_token(tokens: list[Token]) -> Token | None:
+        for token in tokens:
+            if token.type not in {TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT}:
+                return token
+        return None
+
+    @staticmethod
+    def _normalize_embedded_block_tokens(tokens: list[Token]) -> list[Token]:
+        normalized = list(tokens)
+
+        for index, token in enumerate(normalized):
+            if token.type == TokenType.NEWLINE:
+                continue
+            if token.type == TokenType.INDENT:
+                normalized.pop(index)
+            break
+
+        for index in range(len(normalized) - 1, -1, -1):
+            token = normalized[index]
+            if token.type == TokenType.NEWLINE:
+                continue
+            if token.type == TokenType.DEDENT:
+                normalized.pop(index)
+            break
+
+        return normalized
 
     @staticmethod
     def _is_embedded_block_source(source: str) -> bool:
