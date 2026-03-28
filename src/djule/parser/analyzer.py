@@ -50,6 +50,7 @@ SAFE_BUILTIN_NAMES = {
 
 @dataclass(frozen=True)
 class SemanticDiagnostic:
+    """A semantic problem discovered after parsing, formatted for CLI/IDE use."""
     message: str
     line: int
     column: int
@@ -62,6 +63,7 @@ class DjuleAnalyzer:
     """Lightweight semantic checks for Djule modules."""
 
     def __init__(self) -> None:
+        """Initialize analyzer state for one analysis pass."""
         self.diagnostics: list[SemanticDiagnostic] = []
         self.document_path: Path | None = None
         self.search_paths: list[Path] = []
@@ -73,6 +75,12 @@ class DjuleAnalyzer:
         document_path: str | Path | None = None,
         search_paths: list[str | Path] | None = None,
     ) -> list[SemanticDiagnostic]:
+        """Run semantic checks for imports, names, and component references.
+
+        The analyzer is intentionally lightweight. It assumes parsing already
+        succeeded and focuses on undefined names, unresolved imports, and
+        component references that cannot be found in the current scope.
+        """
         self.document_path = Path(document_path).resolve() if document_path else None
         self.search_paths = [
             Path(path).resolve() for path in (search_paths or self._default_search_paths())
@@ -94,6 +102,7 @@ class DjuleAnalyzer:
         return self.diagnostics
 
     def _analyze_imports(self, imports: list[ImportFrom | ImportModule]) -> None:
+        """Report imports whose target modules cannot be resolved from search paths."""
         for import_node in imports:
             if self._can_resolve_import(import_node.module):
                 continue
@@ -110,11 +119,13 @@ class DjuleAnalyzer:
             )
 
     def _can_resolve_import(self, module_name: str) -> bool:
+        """Return whether an import can be resolved as absolute or relative."""
         if module_name.startswith("."):
             return self._resolve_relative_import(module_name) is not None
         return self._resolve_absolute_import(module_name) is not None
 
     def _resolve_absolute_import(self, module_name: str) -> Path | None:
+        """Resolve an absolute Djule module import to a file path if it exists."""
         module_parts = module_name.split(".")
         for base_path in self.search_paths:
             file_candidate = base_path.joinpath(*module_parts).with_suffix(".djule")
@@ -126,6 +137,7 @@ class DjuleAnalyzer:
         return None
 
     def _resolve_relative_import(self, module_name: str) -> Path | None:
+        """Resolve a relative Djule module import from the current document path."""
         if self.document_path is None:
             return None
 
@@ -151,6 +163,7 @@ class DjuleAnalyzer:
 
     @staticmethod
     def _default_search_paths() -> list[Path]:
+        """Build the default import roots from `DJULE_PATH` or Python's `sys.path`."""
         env_paths = os.environ.get("DJULE_PATH")
         if env_paths:
             return [Path(entry).resolve() for entry in env_paths.split(os.pathsep) if entry]
@@ -167,12 +180,19 @@ class DjuleAnalyzer:
         return search_paths or [Path.cwd().resolve()]
 
     def _analyze_component(self, component: ComponentDef, base_scope: set[str]) -> None:
+        """Analyze one component body and its returned markup with a seeded scope."""
         scope = set(base_scope)
         scope.update(component.params)
         scope = self._analyze_statements(component.body, scope)
         self._analyze_markup_node(component.return_stmt.value, scope)
 
     def _analyze_statements(self, statements: list[object], scope: set[str]) -> set[str]:
+        """Walk top-level component statements and track names that become available.
+
+        Branching statements merge only the names guaranteed to exist in both
+        branches, while loop targets are added to the running scope after the
+        loop so later code can reference them consistently with current Djule semantics.
+        """
         current = set(scope)
         for statement in statements:
             if isinstance(statement, AssignStmt):
@@ -194,12 +214,14 @@ class DjuleAnalyzer:
         return current
 
     def _analyze_assign_value(self, value: object, scope: set[str]) -> None:
+        """Analyze the right-hand side of an assignment, whether Python or markup."""
         if isinstance(value, PythonExpr):
             self._check_python_expr(value, scope)
         else:
             self._analyze_markup_node(value, scope)
 
     def _analyze_markup_node(self, node: MarkupNode, scope: set[str]) -> set[str]:
+        """Walk one markup subtree and validate any embedded expressions it contains."""
         current = set(scope)
 
         if isinstance(node, TextNode):
@@ -228,6 +250,7 @@ class DjuleAnalyzer:
         return current
 
     def _analyze_attributes(self, attributes: list[AttributeNode], scope: set[str]) -> set[str]:
+        """Analyze Python-expression attribute values while preserving the current scope."""
         current = set(scope)
         for attribute in attributes:
             if isinstance(attribute.value, PythonExpr):
@@ -235,6 +258,7 @@ class DjuleAnalyzer:
         return current
 
     def _analyze_block_items(self, items: list[BlockItem], scope: set[str]) -> set[str]:
+        """Analyze embedded block items and propagate any names they bind."""
         current = set(scope)
         for item in items:
             if isinstance(item, (TextNode, ElementNode, ComponentNode, BlockNode, ExpressionNode)):
@@ -258,9 +282,11 @@ class DjuleAnalyzer:
         return current
 
     def _check_python_expr(self, expr: PythonExpr, scope: set[str]) -> None:
+        """Validate names used by a `PythonExpr` against the current scope."""
         self._check_expression_source(expr.source, expr.line, expr.column, scope)
 
     def _check_component_reference(self, node: ComponentNode, scope: set[str]) -> None:
+        """Report component tags whose root name is not available in scope."""
         root_name = node.name.split(".")[0]
         if root_name in scope:
             return
@@ -278,6 +304,12 @@ class DjuleAnalyzer:
         )
 
     def _check_expression_source(self, source: str, line: int, column: int, scope: set[str]) -> None:
+        """Parse expression source and report any undefined loaded names.
+
+        Syntax errors are ignored here because the parser already reports them.
+        The analyzer only adds semantic diagnostics when a valid expression
+        references names that are not available in scope.
+        """
         try:
             tree = ast.parse(source, mode="eval")
         except SyntaxError:
@@ -302,16 +334,20 @@ class DjuleAnalyzer:
 
 
 class _UndefinedNameVisitor(ast.NodeVisitor):
+    """AST visitor that records names loaded before being defined in scope."""
     def __init__(self, available_names: set[str]) -> None:
+        """Seed the visitor with globally available names."""
         self.available_names = set(available_names)
         self.scopes: list[set[str]] = [set()]
         self.undefined_names: list[tuple[str, int, int]] = []
 
     def visit_Name(self, node: ast.Name) -> None:
+        """Record undefined loaded names while ignoring stores."""
         if isinstance(node.ctx, ast.Load) and not self._is_defined(node.id):
             self.undefined_names.append((node.id, getattr(node, "lineno", 1), getattr(node, "col_offset", 0)))
 
     def visit_Lambda(self, node: ast.Lambda) -> None:
+        """Create a temporary local scope for lambda parameters."""
         local_names = {arg.arg for arg in node.args.args}
         local_names.update(arg.arg for arg in node.args.posonlyargs)
         local_names.update(arg.arg for arg in node.args.kwonlyargs)
@@ -325,18 +361,23 @@ class _UndefinedNameVisitor(ast.NodeVisitor):
         self.scopes.pop()
 
     def visit_ListComp(self, node: ast.ListComp) -> None:
+        """Analyze list comprehensions with their own local binding scope."""
         self._visit_comprehension(node.generators, [node.elt])
 
     def visit_SetComp(self, node: ast.SetComp) -> None:
+        """Analyze set comprehensions with their own local binding scope."""
         self._visit_comprehension(node.generators, [node.elt])
 
     def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        """Analyze generator expressions with their own local binding scope."""
         self._visit_comprehension(node.generators, [node.elt])
 
     def visit_DictComp(self, node: ast.DictComp) -> None:
+        """Analyze dict comprehensions with their own local binding scope."""
         self._visit_comprehension(node.generators, [node.key, node.value])
 
     def _visit_comprehension(self, generators: list[ast.comprehension], body_nodes: list[ast.AST]) -> None:
+        """Visit comprehension generators and body nodes in comprehension scope order."""
         self.scopes.append(set())
         for generator in generators:
             self.visit(generator.iter)
@@ -348,6 +389,7 @@ class _UndefinedNameVisitor(ast.NodeVisitor):
         self.scopes.pop()
 
     def _bind_target_names(self, node: ast.AST) -> None:
+        """Bind every name introduced by a comprehension target pattern."""
         if isinstance(node, ast.Name):
             self.scopes[-1].add(node.id)
             return
@@ -355,6 +397,7 @@ class _UndefinedNameVisitor(ast.NodeVisitor):
             self._bind_target_names(child)
 
     def _is_defined(self, name: str) -> bool:
+        """Return whether `name` exists in the global or any nested local scope."""
         if name in self.available_names:
             return True
         return any(name in scope for scope in reversed(self.scopes))

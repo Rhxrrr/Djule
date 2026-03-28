@@ -10,6 +10,7 @@ _AUTORELOAD_CONNECTED = False
 
 
 def _get_settings(settings_obj=None):
+    """Return the provided settings object or import Django's global settings."""
     if settings_obj is not None:
         return settings_obj
 
@@ -26,6 +27,12 @@ def get_djule_search_paths(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ) -> list[Path]:
+    """Resolve the effective Djule template/import search roots for Django use.
+
+    Explicit `DJULE_IMPORT_ROOTS` wins. Otherwise the integration falls back to
+    `BASE_DIR` or the renderer's default search paths. Duplicate paths are
+    removed while preserving order.
+    """
     settings = _get_settings(settings_obj)
     configured = getattr(settings, "DJULE_IMPORT_ROOTS", None)
 
@@ -56,6 +63,7 @@ def get_djule_watch_directories(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ) -> list[Path]:
+    """Return existing directories that should be watched for Djule file changes."""
     directories: list[Path] = []
     seen: set[Path] = set()
 
@@ -77,6 +85,7 @@ def watch_djule_files(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ) -> list[Path]:
+    """Register `**/*.djule` watch globs with Django's autoreloader."""
     watched: list[Path] = []
 
     for directory in get_djule_watch_directories(settings_obj=settings_obj, extra_paths=extra_paths):
@@ -87,6 +96,7 @@ def watch_djule_files(
 
 
 def trigger_browser_reload() -> bool:
+    """Trigger django-browser-reload if it is installed, returning success status."""
     try:
         from django_browser_reload.views import trigger_reload_soon
     except ModuleNotFoundError:
@@ -102,6 +112,12 @@ def handle_djule_file_change(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ) -> bool:
+    """Handle a changed Djule file without forcing a full Django process restart.
+
+    When a watched `.djule` file changes, Djule caches are cleared and an
+    optional browser reload is triggered. Non-Djule files or paths outside the
+    watched directories are ignored and return `False`.
+    """
     path = Path(file_path)
     if path.suffix != ".djule":
         return False
@@ -125,6 +141,7 @@ def ensure_djule_autoreload(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ) -> bool:
+    """Register Djule autoreload hooks when Django debug auto-reload is enabled."""
     try:
         settings = _get_settings(settings_obj)
         debug_enabled = bool(getattr(settings, "DEBUG", False))
@@ -144,6 +161,7 @@ def register_djule_autoreload(
     settings_obj=None,
     extra_paths: Sequence[str | Path] | None = None,
 ):
+    """Connect Djule file watching and file-changed handlers to Django autoreload once."""
     global _AUTORELOAD_CONNECTED
 
     if _AUTORELOAD_CONNECTED:
@@ -155,9 +173,11 @@ def register_djule_autoreload(
         raise RuntimeError("Django integration requires Django to be installed") from exc
 
     def _watcher(sender, **kwargs):
+        """Register watched Djule directories when Django starts autoreload."""
         watch_djule_files(sender, settings_obj=settings_obj, extra_paths=extra_paths)
 
     def _file_changed(sender, file_path, **kwargs):
+        """Handle one changed file reported by Django autoreload."""
         return handle_djule_file_change(
             file_path,
             settings_obj=settings_obj,
@@ -179,6 +199,7 @@ def register_djule_autoreload(
 
 
 def resolve_djule_template(template_name: str | Path, *, search_paths: Sequence[Path]) -> Path:
+    """Resolve a Djule template name against the configured search paths."""
     candidate = Path(template_name)
     if candidate.is_absolute() and candidate.exists():
         return candidate.resolve()
@@ -204,6 +225,12 @@ def render_djule(
     include_request_prop: bool = False,
     settings_obj=None,
 ) -> str:
+    """Render a Djule template to HTML for use inside a Django project.
+
+    The helper resolves search paths from Django settings, optionally injects
+    the request object into props, and ensures Djule's autoreload hook is ready
+    in debug mode before rendering.
+    """
     ensure_djule_autoreload(settings_obj=settings_obj, extra_paths=search_paths)
     resolved_search_paths = get_djule_search_paths(settings_obj=settings_obj, extra_paths=search_paths)
     template_path = resolve_djule_template(template_name, search_paths=resolved_search_paths)
@@ -236,6 +263,7 @@ def render_djule_response(
     headers: Mapping[str, str] | None = None,
     settings_obj=None,
 ):
+    """Render a Djule template and wrap it in a Django `HttpResponse`."""
     try:
         from django.http import HttpResponse
     except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional dependency

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from djule.parser import DjuleLexer, TokenType
+from djule.parser import DjuleLexer, LexerError, TokenType
 from tests.fixture_paths import example_path
 
 
@@ -14,11 +14,14 @@ class LexerTests(unittest.TestCase):
     def test_simple_page_tokenizes(self):
         tokens = self.lex("01_simple_page.djule")
         token_types = [token.type for token in tokens]
+        values = [token.value for token in tokens]
 
         self.assertIn(TokenType.DEF, token_types)
         self.assertIn(TokenType.HTML_TAG_OPEN, token_types)
         self.assertIn(TokenType.TEXT, token_types)
-        self.assertIn(TokenType.EXPR, token_types)
+        self.assertIn(TokenType.LBRACE, token_types)
+        self.assertIn(TokenType.RBRACE, token_types)
+        self.assertIn("title", values)
         self.assertEqual(tokens[-1].type, TokenType.EOF)
 
     def test_component_import_tokenizes(self):
@@ -51,6 +54,47 @@ class LexerTests(unittest.TestCase):
         self.assertIn("unread_count", values)
         self.assertIn("You have ", values)
         self.assertIn(" unread notifications.", values)
+
+    def test_raises_for_unexpected_extra_indentation_inside_same_block(self):
+        source = """def Page():
+   greeting = "hi"
+    badge = "oops"
+   return (
+       <p>{greeting}</p>
+   )
+"""
+
+        with self.assertRaises(LexerError) as context:
+            DjuleLexer(source).tokenize()
+
+        self.assertIn("Unexpected indentation", str(context.exception))
+
+    def test_allows_consistent_nonstandard_indentation_per_block(self):
+        source = """def Page():
+   greeting = "hi"
+   if True:
+      badge = "ok"
+   return (
+      <p>{greeting}</p>
+   )
+"""
+
+        tokens = DjuleLexer(source).tokenize()
+
+        self.assertEqual(tokens[-1].type, TokenType.EOF)
+
+    def test_raises_when_block_opener_is_not_followed_by_indented_body(self):
+        source = """def Page():
+    if True:
+    return (
+        <p>Hi</p>
+    )
+"""
+
+        with self.assertRaises(LexerError) as context:
+            DjuleLexer(source).tokenize()
+
+        self.assertIn("Expected indented block", str(context.exception))
 
 
 if __name__ == "__main__":

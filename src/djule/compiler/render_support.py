@@ -30,15 +30,18 @@ from djule.parser.ast_nodes import (
 
 
 class DjuleRenderMixin:
+    """Runtime rendering helpers used by `DjuleRenderer`."""
     def render(
         self,
         component_name: str | None = None,
         props: Mapping[str, object] | None = None,
     ) -> str:
+        """Render one component to its final HTML string output."""
         target_name = component_name or self._default_component_name()
         return str(self._render_component_by_name(target_name, dict(props or {}), persist_plan=True))
 
     def _get_component_plan(self, component_name: str, *, persist: bool) -> ComponentPlan | None:
+        """Return a compiled component plan, using caches when persistence is allowed."""
         if component_name in self._instance_component_plans:
             return self._instance_component_plans[component_name]
 
@@ -56,6 +59,7 @@ class DjuleRenderMixin:
         return plan
 
     def _default_component_name(self) -> str:
+        """Choose the default component to render when none is specified explicitly."""
         if "Page" in self.internal_components:
             return "Page"
         if not self.module.components:
@@ -69,6 +73,7 @@ class DjuleRenderMixin:
         *,
         persist_plan: bool = False,
     ) -> SafeHtml:
+        """Resolve and render a component by name, preserving render context for errors."""
         previous_component_name = self._current_component_name
         self._current_component_name = component_name
         try:
@@ -102,6 +107,7 @@ class DjuleRenderMixin:
         *,
         persist_plan: bool = False,
     ) -> SafeHtml:
+        """Render a Djule-defined component with prop validation and optional plan reuse."""
         env = dict(props)
 
         if "children" in env and "children" not in component.params:
@@ -126,10 +132,12 @@ class DjuleRenderMixin:
         return self._render_component_plan(component_plan, env)
 
     def _execute_statements(self, statements: list[object], env: dict[str, object]) -> None:
+        """Execute component-body statements sequentially in the given environment."""
         for statement in statements:
             self._execute_statement(statement, env)
 
     def _execute_statement(self, statement: object, env: dict[str, object]) -> None:
+        """Execute one top-level component statement and mutate the environment as needed."""
         if isinstance(statement, AssignStmt):
             if isinstance(statement.value, PythonExpr):
                 env[statement.target] = self._eval_python_expr(
@@ -165,15 +173,18 @@ class DjuleRenderMixin:
         raise RendererError(f"Unsupported statement type: {type(statement)!r}")
 
     def _render_return(self, statement: ReturnStmt, env: dict[str, object]) -> SafeHtml:
+        """Render the markup returned by a component once its body has executed."""
         return self._render_markup_node(statement.value, env)
 
     def _render_component_plan(self, component_plan: ComponentPlan, env: dict[str, object]) -> SafeHtml:
+        """Execute a compiled component plan into one safe HTML fragment."""
         fragments: list[str] = []
         for part in component_plan.parts:
             fragments.append(self._render_plan_part(part, env))
         return SafeHtml("".join(fragments))
 
     def _render_plan_part(self, part: PlanPart, env: dict[str, object]) -> str:
+        """Render one compiled plan part according to its static or dynamic type."""
         if isinstance(part, StaticPart):
             return part.value
 
@@ -196,6 +207,7 @@ class DjuleRenderMixin:
         raise RendererError(f"Unsupported render plan part: {type(part)!r}")
 
     def _render_markup_node(self, node: MarkupNode, env: dict[str, object]) -> SafeHtml:
+        """Render one markup AST node into safe HTML."""
         if isinstance(node, TextNode):
             return SafeHtml(node.value)
 
@@ -216,16 +228,19 @@ class DjuleRenderMixin:
         raise RendererError(f"Unsupported markup node: {type(node)!r}")
 
     def _render_block_node(self, node: BlockNode, env: dict[str, object]) -> SafeHtml:
+        """Render an embedded Djule block by appending emitted fragments in order."""
         fragments: list[str] = []
         self._execute_block_items(node.statements, env, fragments)
         return SafeHtml("".join(fragments))
 
     def _render_element_node(self, node: ElementNode, env: dict[str, object]) -> SafeHtml:
+        """Render a plain HTML element with rendered attributes and children."""
         rendered_attributes = self._render_attributes(node.attributes, env)
         rendered_children = self._render_children(node.children, env)
         return SafeHtml(f"<{node.tag}{rendered_attributes}>{rendered_children}</{node.tag}>")
 
     def _render_component_node(self, node: ComponentNode, env: dict[str, object]) -> SafeHtml:
+        """Render a component tag after resolving props and nested children."""
         props = self._resolve_props(node.attributes, env)
         component = self._resolve_component(node.name)
         if component is None:
@@ -240,11 +255,13 @@ class DjuleRenderMixin:
         return self._render_resolved_component(node.name, component, props)
 
     def _render_children(self, children: list[MarkupNode], env: dict[str, object]) -> SafeHtml:
+        """Render child markup nodes and concatenate their HTML safely."""
         if not children:
             return SafeHtml("")
         return SafeHtml("".join(str(self._render_markup_node(child, env)) for child in children))
 
     def _render_attributes(self, attributes: list[AttributeNode], env: dict[str, object]) -> str:
+        """Render HTML attributes with proper escaping for dynamic values."""
         parts = []
         for attribute in attributes:
             value = self._resolve_attribute_value(attribute, env)
@@ -252,6 +269,7 @@ class DjuleRenderMixin:
         return "".join(parts)
 
     def _resolve_props(self, attributes: list[AttributeNode], env: dict[str, object]) -> dict[str, object]:
+        """Evaluate component prop values into a plain Python props dictionary."""
         props: dict[str, object] = {}
         for attribute in attributes:
             if isinstance(attribute.value, PythonExpr):
@@ -266,6 +284,7 @@ class DjuleRenderMixin:
         return props
 
     def _resolve_attribute_value(self, attribute: AttributeNode, env: dict[str, object]) -> str:
+        """Resolve one HTML attribute value to its final string form."""
         if isinstance(attribute.value, PythonExpr):
             value = self._eval_python_expr(
                 attribute.value.source,
@@ -281,6 +300,11 @@ class DjuleRenderMixin:
         return str(value)
 
     def _render_expression_value(self, value: object) -> SafeHtml:
+        """Convert an expression result into safe HTML output.
+
+        `SafeHtml` passes through untouched, `None` becomes an empty string,
+        sequences are concatenated item by item, and everything else is escaped.
+        """
         if value is None:
             return SafeHtml("")
 
@@ -299,6 +323,7 @@ class DjuleRenderMixin:
         env: dict[str, object],
         fragments: list[str],
     ) -> None:
+        """Execute each embedded block item, appending any rendered output fragments."""
         for item in items:
             self._execute_block_item(item, env, fragments)
 
@@ -308,6 +333,7 @@ class DjuleRenderMixin:
         env: dict[str, object],
         fragments: list[str],
     ) -> None:
+        """Execute one embedded block item and emit or bind values as needed."""
         if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
             fragments.append(str(self._render_markup_node(item, env)))
             return
@@ -360,6 +386,12 @@ class DjuleRenderMixin:
         line: int = 0,
         column: int = 0,
     ) -> object:
+        """Evaluate a Python expression in the current Djule environment.
+
+        Expressions are compiled once per unique source string and cached.
+        Runtime failures are wrapped with file, component, and source position
+        context so editor and CLI diagnostics can show useful locations.
+        """
         scope = {"__builtins__": self.builtins, **env}
         try:
             code = self._compiled_expr_cache.get(source)

@@ -103,7 +103,7 @@ Implemented:
 - Django extra dependency metadata
 - CI workflow in [ci.yml](/Users/Rhxrr/Desktop/Repos/Djule/.github/workflows/ci.yml)
 - project [README.md](/Users/Rhxrr/Desktop/Repos/Djule/README.md)
-- pre-release version `0.1.0a1`
+- stable release version `1.0.0`
 
 ## Still Recommended Before Broader Rollout
 

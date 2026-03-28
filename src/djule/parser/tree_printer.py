@@ -29,6 +29,7 @@ class DjuleTreePrinter:
     """Render the Djule AST as a readable terminal tree."""
 
     def print_module(self, module: Module) -> str:
+        """Render the root module node and its children as an ASCII tree."""
         lines = ["Module"]
         children: list[tuple[str, object]] = [
             ("imports", module.imports),
@@ -43,6 +44,7 @@ class DjuleTreePrinter:
         prefix: str,
         children: list[tuple[str, object]],
     ) -> None:
+        """Render labeled child groups, skipping empty values."""
         visible = [(label, value) for label, value in children if self._should_render(value)]
         for index, (label, value) in enumerate(visible):
             is_last = index == len(visible) - 1
@@ -52,6 +54,7 @@ class DjuleTreePrinter:
             self._render_value(lines, child_prefix, value)
 
     def _render_value(self, lines: list[str], prefix: str, value: object) -> None:
+        """Render one tree value, delegating to node or scalar renderers as needed."""
         if isinstance(value, str):
             lines.append(self._branch(prefix, True, f"String: {value}"))
             return
@@ -64,6 +67,7 @@ class DjuleTreePrinter:
         self._render_node(lines, prefix, value, is_last=True)
 
     def _render_node(self, lines: list[str], prefix: str, node: object, is_last: bool) -> None:
+        """Render one AST node and then recurse into its structured children."""
         label = self._node_label(node)
         lines.append(self._branch(prefix, is_last, label))
         child_prefix = self._child_prefix(prefix, is_last)
@@ -164,6 +168,7 @@ class DjuleTreePrinter:
 
     @staticmethod
     def _node_label(node: object) -> str:
+        """Return the one-line label used for an AST node in the printed tree."""
         if isinstance(node, ImportFrom):
             names = ", ".join(node.names)
             return f"ImportFrom module={node.module} names=[{names}]"
@@ -210,15 +215,18 @@ class DjuleTreePrinter:
 
     @staticmethod
     def _should_render(value: object) -> bool:
+        """Return whether a value should appear in the output tree at all."""
         if isinstance(value, list):
             return bool(value)
         return value is not None
 
     @staticmethod
     def _branch(prefix: str, is_last: bool, label: str) -> str:
+        """Build one tree branch line with the correct connector characters."""
         connector = "└── " if is_last else "├── "
         return f"{prefix}{connector}{label}"
 
     @staticmethod
     def _child_prefix(prefix: str, is_last: bool) -> str:
+        """Return the prefix to use for children of the current branch."""
         return prefix + ("    " if is_last else "│   ")
