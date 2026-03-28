@@ -1,16 +1,23 @@
 {
-  "name": "djule-language",
-  "displayName": "Djule Language",
+  "name": "djule",
+  "displayName": "Djule",
   "description": "Syntax highlighting and basic language configuration for Djule templates.",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "rhxrr",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rhxrrr/Djule.git"
+  },
+  "homepage": "https://github.com/Rhxrrr/Djule",
+  "bugs": {
+    "url": "https://github.com/Rhxrrr/Djule/issues"
+  },
+  "icon": "icons/Djule-Icon.png",
   "main": "./extension.js",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "activationEvents": [
-    "onLanguage:djule"
-  ],
   "categories": [
     "Programming Languages",
     "Themes"
