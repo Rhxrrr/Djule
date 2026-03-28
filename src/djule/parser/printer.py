@@ -34,6 +34,7 @@ class DjulePrinter:
     """
 
     def print_module(self, module: Module) -> str:
+        """Render a whole AST module back into normalized Djule source text."""
         lines: list[str] = []
 
         for import_node in module.imports:
@@ -50,6 +51,7 @@ class DjulePrinter:
         return "\n".join(lines)
 
     def _print_import(self, node: ImportFrom | ImportModule) -> str:
+        """Render one import node back into Djule source."""
         if isinstance(node, ImportModule):
             if node.alias:
                 return f"import {node.module} as {node.alias}"
@@ -58,6 +60,7 @@ class DjulePrinter:
         return f"from {node.module} import {names}"
 
     def _print_component(self, node: ComponentDef) -> list[str]:
+        """Render a component definition, including body statements and return markup."""
         params = ", ".join(node.params)
         lines = [f"def {node.name}({params}):"]
 
@@ -68,6 +71,7 @@ class DjulePrinter:
         return lines
 
     def _print_statement(self, statement, indent: int) -> list[str]:
+        """Render one top-level component statement with the requested indentation."""
         prefix = "    " * indent
 
         if isinstance(statement, AssignStmt):
@@ -97,6 +101,7 @@ class DjulePrinter:
         raise TypeError(f"Unsupported statement node: {type(statement)!r}")
 
     def _print_return(self, statement: ReturnStmt, indent: int) -> list[str]:
+        """Render the `return (...)` portion of a component."""
         prefix = "    " * indent
         lines = [f"{prefix}return ("]
         lines.extend(self._print_markup_block(statement.value, indent + 1))
@@ -104,6 +109,7 @@ class DjulePrinter:
         return lines
 
     def _print_markup_block(self, node: MarkupNode, indent: int) -> list[str]:
+        """Render one markup node as one or more source lines."""
         prefix = "    " * indent
 
         if isinstance(node, TextNode):
@@ -124,6 +130,7 @@ class DjulePrinter:
         raise TypeError(f"Unsupported markup node: {type(node)!r}")
 
     def _print_embedded_block(self, node: BlockNode, indent: int) -> list[str]:
+        """Render an embedded Djule `{...}` block with nested indentation."""
         prefix = "    " * indent
         lines = [f"{prefix}{{"]
         for statement in node.statements:
@@ -138,6 +145,11 @@ class DjulePrinter:
         children: list[MarkupNode],
         indent: int,
     ) -> list[str]:
+        """Render either an HTML tag or component tag block.
+
+        Children are printed inline when they are all simple text or
+        interpolations. Otherwise the printer expands them across multiple lines.
+        """
         prefix = "    " * indent
         open_tag = self._format_open_tag(name, attributes)
 
@@ -155,17 +167,24 @@ class DjulePrinter:
         return lines
 
     def _format_open_tag(self, name: str, attributes: list[AttributeNode]) -> str:
+        """Render an opening tag with any attributes already attached."""
         if not attributes:
             return f"<{name}>"
         rendered_attributes = " ".join(self._print_attribute(attribute) for attribute in attributes)
         return f"<{name} {rendered_attributes}>"
 
     def _print_attribute(self, attribute: AttributeNode) -> str:
+        """Render one attribute value in literal or `{expr}` form."""
         if isinstance(attribute.value, PythonExpr):
             return f"{attribute.name}={{{attribute.value.source}}}"
         return f"{attribute.name}={attribute.value}"
 
     def _print_inline_markup(self, node: MarkupNode) -> str:
+        """Render markup that is legal to print on a single source line.
+
+        Embedded blocks are rejected here because they require explicit
+        indentation and brace lines in the output.
+        """
         if isinstance(node, TextNode):
             return node.value
         if isinstance(node, ExpressionNode):
@@ -183,6 +202,7 @@ class DjulePrinter:
         raise TypeError(f"Unsupported markup node: {type(node)!r}")
 
     def _print_block_item(self, item: BlockItem, indent: int) -> list[str]:
+        """Render one item inside an embedded Djule block."""
         prefix = "    " * indent
 
         if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
@@ -216,4 +236,5 @@ class DjulePrinter:
 
     @staticmethod
     def _is_inline_children(children: list[MarkupNode]) -> bool:
+        """Return whether child markup can be rendered inline without losing structure."""
         return all(isinstance(child, (TextNode, ExpressionNode)) for child in children)

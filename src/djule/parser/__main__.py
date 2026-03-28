@@ -16,6 +16,7 @@ from .tree_printer import DjuleTreePrinter
 
 
 def _usage() -> str:
+    """Return the CLI usage string shared by parser entrypoint errors."""
     return (
         "Usage: python -m djule.parser <lexer|parser|ast|ast-raw|render|check-json> <path-to-file.djule|-> "
         "[--component <name>] [--props '<json-object>'] [--search-path <dir>] [--document-path <file>]\n"
@@ -24,6 +25,7 @@ def _usage() -> str:
 
 
 def _coerce_cli_value(value: object) -> object:
+    """Convert decoded JSON props into attribute-friendly namespaces recursively."""
     if isinstance(value, dict):
         return SimpleNamespace(**{key: _coerce_cli_value(inner) for key, inner in value.items()})
     if isinstance(value, list):
@@ -32,11 +34,13 @@ def _coerce_cli_value(value: object) -> object:
 
 
 def _emit_check_json_result(*, ok: bool, diagnostics: list[dict[str, object]]) -> int:
+    """Print machine-readable diagnostics JSON and return the matching exit code."""
     print(json.dumps({"ok": ok, "diagnostics": diagnostics}, separators=(",", ":"), sort_keys=True))
     return 0 if ok else 2
 
 
 def main() -> int:
+    """Run the Djule parser CLI in lexer, AST, render, or diagnostics mode."""
     supported_modes = {"lexer", "parser", "ast", "ast-raw", "render", "check-json", "tokens", "source"}
     if len(sys.argv) < 3 or sys.argv[1] not in supported_modes:
         print(_usage())

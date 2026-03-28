@@ -21,10 +21,16 @@ from djule.parser.ast_nodes import (
 
 
 class DjulePlanMixin:
+    """Helpers that compile Djule markup trees into reusable render plans."""
     def _compile_entry_plan(
         self,
         component_name: str,
     ) -> tuple[ComponentPlan, tuple[tuple[str, int, int], ...]]:
+        """Compile the persisted entry render plan for one component.
+
+        Dependency paths touched while resolving imports or inlining components
+        are tracked so cached plans can be invalidated when any of them change.
+        """
         previous_dependencies = self._plan_dependency_paths
         self._plan_dependency_paths = set()
         if self.module_path is not None:
@@ -47,6 +53,7 @@ class DjulePlanMixin:
         return plan, dependencies
 
     def _compile_component_plan(self, component_name: str) -> ComponentPlan:
+        """Compile a component plan without persisting dependency metadata."""
         component = self.internal_components.get(component_name)
         if component is None:
             raise RendererError(f"Unknown component '{component_name}'")
@@ -63,6 +70,7 @@ class DjulePlanMixin:
         component: ComponentDef,
         bindings: dict[str, tuple[str, object]],
     ) -> tuple[list[PlanPart], bool]:
+        """Compile one component with any known prop/local bindings already applied."""
         body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, bindings)
         active_bindings = body_bindings if fully_flattened else bindings
         return self._compile_markup_plan(component.return_stmt.value, active_bindings), not fully_flattened
@@ -72,6 +80,12 @@ class DjulePlanMixin:
         statements: list[object],
         bindings: dict[str, tuple[str, object]],
     ) -> tuple[dict[str, tuple[str, object]], bool]:
+        """Try to flatten simple component-body assignments into reusable bindings.
+
+        Only straight-line assignments are flattened. If any non-assignment
+        statement appears, the method falls back to runtime execution by
+        returning the original bindings and `False`.
+        """
         compiled = dict(bindings)
 
         for statement in statements:
@@ -95,6 +109,7 @@ class DjulePlanMixin:
         node: MarkupNode,
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
+        """Compile one markup subtree into render-plan parts."""
         if isinstance(node, TextNode):
             return [StaticPart(node.value)]
 
@@ -123,6 +138,7 @@ class DjulePlanMixin:
         children: list[MarkupNode],
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
+        """Compile a sequence of child markup nodes and merge adjacent static runs."""
         parts: list[PlanPart] = []
         for child in children:
             parts.extend(self._compile_markup_plan(child, bindings))
@@ -136,6 +152,12 @@ class DjulePlanMixin:
         line: int = 0,
         column: int = 0,
     ) -> list[PlanPart]:
+        """Compile an expression to static output or a runtime expression part.
+
+        Known literal bindings collapse to `StaticPart`, rewritten expressions
+        become `ExprPart`, and bound child/plan fragments are spliced directly
+        into the surrounding part list.
+        """
         binding = self._binding_for_expression(source, bindings)
         if binding is None:
             return [ExprPart(source, line=line, column=column)]
@@ -154,6 +176,7 @@ class DjulePlanMixin:
         attribute: AttributeNode,
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
+        """Compile one attribute into static or dynamic render-plan parts."""
         if not isinstance(attribute.value, PythonExpr):
             literal_value = ast.literal_eval(attribute.value)
             return [StaticPart(f' {attribute.name}="{escape("" if literal_value is None else str(literal_value), quote=True)}"')]
@@ -182,6 +205,12 @@ class DjulePlanMixin:
         node: ComponentNode,
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
+        """Compile a component usage to static HTML, inlined plan parts, or a runtime node.
+
+        Fully static imported/local components can render immediately. Otherwise
+        the compiler tries to inline their plan, falling back to `NodePart`
+        when runtime behavior is still required.
+        """
         component = self._resolve_component(node.name)
         if component is None:
             return [NodePart(node)]
@@ -216,6 +245,7 @@ class DjulePlanMixin:
         node: ComponentNode,
         bindings: dict[str, tuple[str, object]],
     ) -> dict[str, tuple[str, object]]:
+        """Build binding metadata for component props and nested children."""
         resolved: dict[str, tuple[str, object]] = {}
 
         for attribute in node.attributes:
@@ -237,6 +267,7 @@ class DjulePlanMixin:
         self,
         bindings: dict[str, tuple[str, object]],
     ) -> dict[str, object] | None:
+        """Materialize real prop values when every binding is statically renderable."""
         props: dict[str, object] = {}
         for name, (binding_type, value) in bindings.items():
             if binding_type == "literal":
@@ -262,6 +293,7 @@ class DjulePlanMixin:
         component,
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart] | None:
+        """Try to inline another component's compiled plan into the current one."""
         if isinstance(component, ImportedComponentRef):
             resolved = component.renderer._resolve_component(component.component_name)
             if isinstance(resolved, ComponentDef):
@@ -282,6 +314,7 @@ class DjulePlanMixin:
         source: str,
         bindings: dict[str, tuple[str, object]],
     ) -> tuple[str, object] | None:
+        """Return a binding only for simple identifier expressions in v1."""
         if source.isidentifier():
             return bindings.get(source)
         return None
@@ -292,6 +325,12 @@ class DjulePlanMixin:
         source: str,
         bindings: dict[str, tuple[str, object]],
     ) -> str:
+        """Rewrite identifier references inside an expression using known bindings.
+
+        Literal and expression bindings are substituted through Python's AST so
+        simple helper assignments can be folded into later dynamic expressions.
+        If parsing or unparsing fails, the original source is preserved.
+        """
         try:
             tree = ast.parse(source, mode="eval")
         except SyntaxError:
@@ -323,11 +362,13 @@ class DjulePlanMixin:
             return source
 
     def _track_plan_dependency(self, path: Path) -> None:
+        """Record that the current compiled plan depends on the given source path."""
         if self._plan_dependency_paths is not None:
             self._plan_dependency_paths.add(path.resolve())
 
     @staticmethod
     def _merge_static_parts(parts: list[PlanPart]) -> list[PlanPart]:
+        """Coalesce adjacent static render-plan parts into larger chunks."""
         merged: list[PlanPart] = []
         for part in parts:
             if merged and isinstance(merged[-1], StaticPart) and isinstance(part, StaticPart):

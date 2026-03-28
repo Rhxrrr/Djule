@@ -35,6 +35,7 @@ from djule.parser.parser import DjuleParser
 
 
 class DjuleCacheMixin:
+    """Shared parsed-module and render-plan cache helpers for `DjuleRenderer`."""
     @classmethod
     def from_source(
         cls,
@@ -44,6 +45,7 @@ class DjuleCacheMixin:
         *,
         search_paths: list[Path] | None = None,
     ):
+        """Construct a renderer directly from raw Djule source text."""
         module = DjuleParser.from_source(source).parse()
         resolved_search_paths = [path.resolve() for path in (search_paths or cls._default_search_paths())]
         return cls(
@@ -63,6 +65,7 @@ class DjuleCacheMixin:
         search_paths: list[Path] | None = None,
         renderer_cache: dict[Path, "DjuleRenderer"] | None = None,
     ):
+        """Construct a renderer from a file, reusing parsed-module caches when possible."""
         resolved_path = Path(path).resolve()
         module = cls._load_cached_module(resolved_path)
         resolved_search_paths = [base.resolve() for base in (search_paths or cls._default_search_paths())]
@@ -77,12 +80,14 @@ class DjuleCacheMixin:
 
     @classmethod
     def clear_caches(cls) -> None:
+        """Clear all in-memory module, expression, and entry-plan caches."""
         cls._parsed_module_cache.clear()
         cls._compiled_expr_cache.clear()
         cls._entry_plan_cache.clear()
 
     @classmethod
     def cache_stats(cls) -> dict[str, int]:
+        """Return quick counts for the main in-memory renderer caches."""
         return {
             "parsed_modules": len(cls._parsed_module_cache),
             "compiled_expressions": len(cls._compiled_expr_cache),
@@ -91,6 +96,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _load_cached_module(cls, path: Path) -> Module:
+        """Load a parsed module from memory, disk cache, or source file in that order."""
         resolved_path = path.resolve()
         stat = resolved_path.stat()
         cache_entry = cls._parsed_module_cache.get(resolved_path)
@@ -111,6 +117,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _cache_root(cls) -> Path:
+        """Return the cache root directory, creating the expected layout if needed."""
         cache_root = Path(os.environ.get("DJULE_CACHE_DIR", ".djule-cache")).resolve()
         cls._ensure_cache_layout(cache_root)
         (cache_root / "modules").mkdir(parents=True, exist_ok=True)
@@ -119,6 +126,11 @@ class DjuleCacheMixin:
 
     @classmethod
     def _ensure_cache_layout(cls, cache_root: Path) -> None:
+        """Create or migrate the cache directory layout for the current cache version.
+
+        Old incompatible cache directories are removed when the on-disk version
+        marker does not match the renderer's current cache schema version.
+        """
         version_path = cache_root / "version.json"
         expected = {"version": cls.CACHE_VERSION}
 
@@ -142,16 +154,19 @@ class DjuleCacheMixin:
 
     @classmethod
     def _module_cache_path(cls, path: Path) -> Path:
+        """Return the disk cache file path for one parsed source module."""
         digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()
         return cls._cache_root() / "modules" / f"{digest}.json"
 
     @classmethod
     def _plan_cache_path(cls, path: Path, component_name: str) -> Path:
+        """Return the disk cache file path for one compiled entry component plan."""
         digest = hashlib.sha256(f"{path}::{component_name}".encode("utf-8")).hexdigest()
         return cls._cache_root() / "plans" / f"{digest}.json"
 
     @classmethod
     def _load_disk_cached_module(cls, path: Path, stat_result: os.stat_result) -> Module | None:
+        """Load a parsed module from disk cache if metadata and payload still match."""
         cache_path = cls._module_cache_path(path)
         if not cache_path.exists():
             return None
@@ -181,6 +196,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _write_disk_cached_module(cls, path: Path, stat_result: os.stat_result, module: Module) -> None:
+        """Persist a parsed module to disk cache using the source file metadata as a key."""
         payload = {
             "source_path": str(path),
             "mtime_ns": stat_result.st_mtime_ns,
@@ -195,6 +211,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _deserialize_cached_node(cls, value: object) -> object:
+        """Rebuild cached AST node dataclasses from JSON-friendly payloads."""
         if isinstance(value, list):
             return [cls._deserialize_cached_node(item) for item in value]
 
@@ -214,6 +231,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _deserialize_cached_plan(cls, value: object) -> object:
+        """Rebuild cached render-plan dataclasses and nested AST nodes from disk data."""
         if isinstance(value, list):
             return [cls._deserialize_cached_plan(item) for item in value]
 
@@ -255,6 +273,7 @@ class DjuleCacheMixin:
 
     @classmethod
     def _dependency_snapshot(cls, paths: set[Path]) -> tuple[tuple[str, int, int], ...]:
+        """Capture stable file metadata for all plan dependency paths."""
         snapshot: list[tuple[str, int, int]] = []
         for path in sorted(path.resolve() for path in paths):
             try:
@@ -266,6 +285,7 @@ class DjuleCacheMixin:
 
     @staticmethod
     def _dependencies_are_current(dependencies: tuple[tuple[str, int, int], ...]) -> bool:
+        """Return whether every cached dependency still matches its saved metadata."""
         for path_str, mtime_ns, size in dependencies:
             path = Path(path_str)
             try:
@@ -277,6 +297,7 @@ class DjuleCacheMixin:
         return True
 
     def _load_cached_entry_plan(self, path: Path, component_name: str) -> ComponentPlan:
+        """Load a compiled entry plan from memory, disk, or by compiling it fresh."""
         resolved_path = path.resolve()
         stat = resolved_path.stat()
 
@@ -309,6 +330,7 @@ class DjuleCacheMixin:
         component_name: str,
         stat_result: os.stat_result,
     ) -> tuple[ComponentPlan, tuple[tuple[str, int, int], ...]] | None:
+        """Load an entry render plan from disk if source and dependency data still match."""
         cache_path = cls._plan_cache_path(path, component_name)
         if not cache_path.exists():
             return None
@@ -366,6 +388,7 @@ class DjuleCacheMixin:
         plan: ComponentPlan,
         dependencies: tuple[tuple[str, int, int], ...],
     ) -> None:
+        """Persist a compiled entry render plan and its dependency snapshot to disk."""
         payload = {
             "source_path": str(path),
             "component_name": component_name,
@@ -385,6 +408,7 @@ class DjuleCacheMixin:
 
     @staticmethod
     def _write_json_file(path: Path, payload: dict[str, object]) -> None:
+        """Write a cache payload atomically by replacing the target via a temp file."""
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:

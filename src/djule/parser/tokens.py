@@ -6,6 +6,7 @@ from enum import Enum
 
 
 class TokenType(str, Enum):
+    """Token kinds emitted by the Djule lexer."""
     # Python/top-level tokens
     FROM = "FROM"
     IMPORT = "IMPORT"
@@ -50,6 +51,7 @@ class TokenType(str, Enum):
     @classmethod
     @cache # avoids rebuilding the dict on every call
     def _identifier_map(cls) -> dict[str, "TokenType"]:
+        """Map reserved identifier text to keyword token types."""
         return {
             "from": cls.FROM,
             "import": cls.IMPORT,
@@ -65,6 +67,7 @@ class TokenType(str, Enum):
 
     @classmethod
     def from_identifier(cls, value: str) -> "TokenType":
+        """Return the keyword token for `value`, or `NAME` if it is not reserved."""
         return cls._identifier_map().get(value, cls.NAME)
 
 MULTI_CHAR_OPERATORS = ("+=", "==", "!=", ">=", "<=")
@@ -74,12 +77,14 @@ STRING_PREFIX_CHARS = set("fFrRuUbB")
 
 @dataclass(frozen=True)
 class Token:
+    """One lexer token with its type, source text, and source coordinates."""
     type: TokenType
     value: str
     line: int
     column: int
 
     def __str__(self) -> str:
+        """Render the token in a stable debug-friendly terminal format."""
         location = f"{self.line}:{self.column}"
         if self.value:
             return f"{location} {self.type.value} {self.value!r}"

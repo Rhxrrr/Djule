@@ -54,6 +54,12 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         search_paths: list[Path] | None = None,
         renderer_cache: dict[Path, "DjuleRenderer"] | None = None,
     ) -> None:
+        """Initialize a renderer for one parsed Djule module.
+
+        The renderer keeps per-instance import registries and compiled plans,
+        while the mixins provide shared caches for parsed modules, compiled
+        expressions, and persisted entry plans.
+        """
         self.module = module
         self.module_path = module_path.resolve() if module_path else None
         self.internal_components = {component.name: component for component in module.components}

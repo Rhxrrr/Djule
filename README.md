@@ -1,6 +1,6 @@
 # Djule
 
-Djule is a Python-first templating/runtime experiment for server-rendered UI.
+Djule is a Python-first templating/runtime for server-rendered UI.
 
 It currently includes:
 
@@ -17,6 +17,12 @@ Install the package locally:
 
 ```bash
 python3 -m pip install .
+```
+
+Install from PyPI:
+
+```bash
+python3 -m pip install djule
 ```
 
 Install with Django helpers:

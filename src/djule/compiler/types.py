@@ -15,13 +15,16 @@ ExternalComponent = Union[Callable[..., object], ComponentDef]
 
 @dataclass(frozen=True)
 class ImportedComponentRef:
+    """A resolved component reference that points into another renderer/module."""
     renderer: "DjuleRenderer"
     component_name: str
 
 
 @dataclass
 class RendererError(Exception):
+    """A runtime or compilation error raised while rendering Djule output."""
     message: str
 
     def __str__(self) -> str:
+        """Return the stored renderer error message unchanged."""
         return self.message
