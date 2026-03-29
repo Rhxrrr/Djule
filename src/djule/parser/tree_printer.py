@@ -198,8 +198,12 @@ class DjuleTreePrinter:
         if isinstance(node, FragmentNode):
             return "FragmentNode"
         if isinstance(node, ElementNode):
+            if node.self_closing:
+                return f"ElementNode <{node.tag} />"
             return f"ElementNode <{node.tag}>"
         if isinstance(node, ComponentNode):
+            if node.self_closing:
+                return f"ComponentNode <{node.name} />"
             return f"ComponentNode <{node.name}>"
         if isinstance(node, BlockNode):
             return "BlockNode"

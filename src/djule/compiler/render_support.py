@@ -244,6 +244,8 @@ class DjuleRenderMixin:
     def _render_element_node(self, node: ElementNode, env: dict[str, object]) -> SafeHtml:
         """Render a plain HTML element with rendered attributes and children."""
         rendered_attributes = self._render_attributes(node.attributes, env)
+        if node.self_closing:
+            return SafeHtml(f"<{node.tag}{rendered_attributes} />")
         rendered_children = self._render_children(node.children, env)
         return SafeHtml(f"<{node.tag}{rendered_attributes}>{rendered_children}</{node.tag}>")
 

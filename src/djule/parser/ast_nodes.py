@@ -88,6 +88,7 @@ class ElementNode:
     tag: str
     attributes: list[AttributeNode]
     children: list["MarkupNode"]
+    self_closing: bool = False
     type: str = field(init=False, default="ElementNode")
 
 
@@ -97,6 +98,7 @@ class ComponentNode:
     name: str
     attributes: list[AttributeNode]
     children: list["MarkupNode"]
+    self_closing: bool = False
     line: int = field(default=0, compare=False)
     column: int = field(default=0, compare=False)
     type: str = field(init=False, default="ComponentNode")

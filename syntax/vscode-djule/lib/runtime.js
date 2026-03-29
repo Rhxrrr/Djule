@@ -85,6 +85,7 @@ function resolveImportedModulePath(document, moduleName, runtimeRoot) {
 function resolveRuntimeRoot(document, context, configuration) {
   const configuredRoot = configuration.get("projectRoot", "").trim();
   const candidates = listRuntimeCandidateDirectories(document);
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
   if (configuredRoot) {
     candidates.unshift(configuredRoot);
   }
@@ -110,7 +111,9 @@ function resolveRuntimeRoot(document, context, configuration) {
     }
   }
 
-  const fallback = workspaceFolder ? workspaceFolder.uri.fsPath : process.cwd();
+  const fallback =
+    (workspaceFolder && workspaceFolder.uri.fsPath) ||
+    (document.uri.scheme === "file" ? path.dirname(document.uri.fsPath) : process.cwd());
   return {
     cwd: fallback,
     env: {},
