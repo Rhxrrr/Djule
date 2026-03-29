@@ -78,6 +78,25 @@ class RendererTests(unittest.TestCase):
         renderer = DjuleRenderer.from_source(source)
         self.assertEqual(renderer.render(), "<!doctype html><html><body>Hello</body></html>")
 
+    def test_multiline_component_params_render_normally(self):
+        source = """def Page(
+    title,
+    subtitle,
+):
+    return (
+        <main>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+        </main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"title": "Hello", "subtitle": "World"}),
+            "<main><h1>Hello</h1><p>World</p></main>",
+        )
+
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
         first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))

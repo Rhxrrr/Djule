@@ -162,10 +162,16 @@ class DjuleParser:
         self._consume(TokenType.LPAREN, "Expected '(' after component name")
 
         params: list[str] = []
+        self._skip_newlines()
         if not self._check(TokenType.RPAREN):
-            params.append(self._consume(TokenType.NAME, "Expected parameter name").value)
-            while self._match(TokenType.COMMA):
-                params.append(self._consume(TokenType.NAME, "Expected parameter name after ','").value)
+            while True:
+                params.append(self._consume(TokenType.NAME, "Expected parameter name").value)
+                self._skip_newlines()
+                if not self._match(TokenType.COMMA):
+                    break
+                self._skip_newlines()
+                if self._check(TokenType.RPAREN):
+                    break
 
         self._consume(TokenType.RPAREN, "Expected ')' after parameters")
         self._consume(TokenType.COLON, "Expected ':' after component signature")
