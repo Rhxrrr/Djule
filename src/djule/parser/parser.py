@@ -41,10 +41,14 @@ class ParserError(Exception):
     message: str
     token: Token
     end_column: int | None = None
+    path: str | None = None
 
     def __str__(self) -> str:
         """Return a human-readable parser error with source coordinates."""
-        return f"{self.message} at line {self.token.line}, column {self.token.column}"
+        location = f"at line {self.token.line}, column {self.token.column}"
+        if self.path:
+            return f"{self.message} in {self.path} {location}"
+        return f"{self.message} {location}"
 
 
 class DjuleParser:
@@ -55,10 +59,11 @@ class DjuleParser:
     returned markup with HTML/component tags plus `{expr}` interpolation.
     """
 
-    def __init__(self, tokens: list[Token]) -> None:
+    def __init__(self, tokens: list[Token], *, source_path: str | None = None) -> None:
         """Initialize the parser with a pre-tokenized Djule source stream."""
         self.tokens = tokens
         self.index = 0
+        self.source_path = source_path
 
     @classmethod
     def from_source(cls, source: str) -> "DjuleParser":
@@ -68,7 +73,8 @@ class DjuleParser:
     @classmethod
     def from_file(cls, path: str | Path) -> "DjuleParser":
         """Create a parser directly from a Djule file on disk."""
-        return cls(DjuleLexer.from_file(path).tokenize())
+        resolved_path = Path(path).resolve()
+        return cls(DjuleLexer.from_file(resolved_path).tokenize(), source_path=str(resolved_path))
 
     def parse(self) -> Module:
         """Parse a full Djule module into imports and component definitions.
@@ -423,7 +429,7 @@ class DjuleParser:
         self._consume(TokenType.RBRACE, "Expected '}' after embedded expression")
 
         if not inner_tokens:
-            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token)
+            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token, path=self.source_path)
 
         source = self._tokens_to_source(inner_tokens)
         first_token = self._first_meaningful_token(inner_tokens) or open_token
@@ -434,6 +440,7 @@ class DjuleParser:
             raise ParserError(
                 message="Expected embedded block to start with 'if', 'for', or an assignment",
                 token=first_token,
+                path=self.source_path,
             )
 
         self._validate_python_expression(source, first_token, "Invalid Python expression inside '{...}'")
@@ -446,7 +453,7 @@ class DjuleParser:
         self._consume(TokenType.RBRACE, "Expected '}' after attribute expression")
 
         if not inner_tokens:
-            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token)
+            raise ParserError(message="Expected Python expression inside '{...}'", token=open_token, path=self.source_path)
 
         first_token = self._first_meaningful_token(inner_tokens) or open_token
         source = self._tokens_to_source(inner_tokens)
@@ -467,6 +474,7 @@ class DjuleParser:
             raise ParserError(
                 message="Expected embedded block to start with 'if', 'for', or an assignment",
                 token=Token(type=token.type, value=token.value, line=line, column=column),
+                path=self.source_path,
             )
         self._validate_python_expression(source, token, "Invalid Python expression inside '{...}'")
         return ExpressionNode(source=source, line=token.line, column=token.column)
@@ -487,7 +495,7 @@ class DjuleParser:
         except ParserError:
             raise
         except LexerError as exc:
-            raise ParserError(message=exc.message, token=origin) from exc
+            raise ParserError(message=exc.message, token=origin, path=self.source_path) from exc
 
     def _parse_children_until(self, close_type: TokenType, close_name: str) -> list[MarkupNode]:
         """Parse child markup until the matching closing tag token is reached."""
@@ -782,8 +790,7 @@ class DjuleParser:
 
         return any(line == "else:" or line.startswith("elif ") for line in lines[1:])
 
-    @staticmethod
-    def _validate_python_expression(source: str, token: Token, message: str) -> None:
+    def _validate_python_expression(self, source: str, token: Token, message: str) -> None:
         """Validate source with Python's expression parser.
 
         Djule reuses Python's own syntax rules for expressions instead of
@@ -794,7 +801,7 @@ class DjuleParser:
             ast.parse(source.strip(), mode="eval")
         except SyntaxError as exc:
             detail = exc.msg or "invalid syntax"
-            raise ParserError(message=f"{message}: {detail}", token=token) from exc
+            raise ParserError(message=f"{message}: {detail}", token=token, path=self.source_path) from exc
 
     def _invalid_for_target_error(self, target_token: Token, *, embedded: bool) -> ParserError:
         """Build a ranged error for invalid `for` loop targets.
@@ -810,7 +817,7 @@ class DjuleParser:
         loop_kind = "embedded for loop" if embedded else "for loop"
         message = f"Expected 'in' after loop variable in {loop_kind}"
         end_column = last_token.column + max(len(last_token.value), 1)
-        return ParserError(message=message, token=target_token, end_column=end_column)
+        return ParserError(message=message, token=target_token, end_column=end_column, path=self.source_path)
 
     @staticmethod
     def _embedded_error_location(source: str, origin: Token, nested_line: int, nested_column: int) -> tuple[int, int]:
@@ -827,24 +834,23 @@ class DjuleParser:
             actual_column = max(1, leading_spaces + max(1, nested_column))
         return actual_line, actual_column
 
-    @classmethod
-    def _remap_embedded_parser_error(cls, source: str, origin: Token, exc: ParserError) -> ParserError:
+    def _remap_embedded_parser_error(self, source: str, origin: Token, exc: ParserError) -> ParserError:
         """Remap a nested embedded parser error onto the outer file location."""
-        line, column = cls._embedded_error_location(source, origin, exc.token.line, exc.token.column)
+        line, column = self._embedded_error_location(source, origin, exc.token.line, exc.token.column)
         end_column = None
         if exc.end_column is not None:
-            _, end_column = cls._embedded_error_location(source, origin, exc.token.line, exc.end_column)
+            _, end_column = self._embedded_error_location(source, origin, exc.token.line, exc.end_column)
         return ParserError(
             message=exc.message,
             token=Token(type=exc.token.type, value=exc.token.value, line=line, column=column),
             end_column=end_column,
+            path=self.source_path,
         )
 
-    @classmethod
-    def _remap_embedded_lexer_error(cls, source: str, origin: Token, exc: LexerError) -> LexerError:
+    def _remap_embedded_lexer_error(self, source: str, origin: Token, exc: LexerError) -> LexerError:
         """Remap a nested embedded lexer error onto the outer file location."""
-        line, column = cls._embedded_error_location(source, origin, exc.line, exc.column)
-        return LexerError(message=exc.message, line=line, column=column)
+        line, column = self._embedded_error_location(source, origin, exc.line, exc.column)
+        return LexerError(message=exc.message, line=line, column=column, path=self.source_path)
 
     @staticmethod
     def _normalize_embedded_block_source(source: str) -> str:
@@ -950,4 +956,4 @@ class DjuleParser:
 
     def _error(self, message: str) -> ParserError:
         """Create a parser error anchored to the current token."""
-        return ParserError(message=message, token=self._peek())
+        return ParserError(message=message, token=self._peek(), path=self.source_path)

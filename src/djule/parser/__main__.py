@@ -39,6 +39,15 @@ def _emit_check_json_result(*, ok: bool, diagnostics: list[dict[str, object]]) -
     return 0 if ok else 2
 
 
+def _diagnostic_path(path_arg: str, path: Path, document_path: Path | None = None) -> str | None:
+    """Return the most useful resolved path for diagnostics output."""
+    if path_arg != "-":
+        return str(path.resolve())
+    if document_path is not None:
+        return str(document_path.resolve())
+    return None
+
+
 def main() -> int:
     """Run the Djule parser CLI in lexer, AST, render, or diagnostics mode."""
     supported_modes = {"lexer", "parser", "ast", "ast-raw", "render", "check-json", "tokens", "source"}
@@ -112,39 +121,48 @@ def main() -> int:
         return 0
 
     if mode == "check-json":
+        diagnostic_path = _diagnostic_path(path_arg, path, document_path)
         try:
             parser = DjuleParser.from_source(sys.stdin.read()) if path_arg == "-" else DjuleParser.from_file(path)
             module = parser.parse()
         except LexerError as exc:
+            diagnostic = {
+                "code": "lexer",
+                "column": exc.column,
+                "line": exc.line,
+                "message": str(exc),
+                "severity": "error",
+            }
+            if exc.path:
+                diagnostic["path"] = exc.path
             return _emit_check_json_result(
                 ok=False,
-                diagnostics=[
-                    {
-                        "code": "lexer",
-                        "column": exc.column,
-                        "line": exc.line,
-                        "message": exc.message,
-                        "severity": "error",
-                    }
-                ],
+                diagnostics=[diagnostic],
             )
         except ParserError as exc:
             diagnostic = {
                 "code": "parser",
                 "column": exc.token.column,
                 "line": exc.token.line,
-                "message": exc.message,
+                "message": str(exc),
                 "severity": "error",
             }
             if exc.end_column is not None:
                 diagnostic["endColumn"] = exc.end_column
+            if exc.path:
+                diagnostic["path"] = exc.path
             return _emit_check_json_result(
                 ok=False,
                 diagnostics=[diagnostic],
             )
         analyzer_document_path = document_path or (path if path_arg != "-" else None)
-        diagnostics = [
-            {
+        diagnostics = []
+        for diagnostic in DjuleAnalyzer().analyze(
+            module,
+            document_path=analyzer_document_path,
+            search_paths=search_paths or None,
+        ):
+            payload = {
                 "code": diagnostic.code,
                 "column": diagnostic.column,
                 "endColumn": diagnostic.end_column,
@@ -152,12 +170,9 @@ def main() -> int:
                 "message": diagnostic.message,
                 "severity": diagnostic.severity,
             }
-            for diagnostic in DjuleAnalyzer().analyze(
-                module,
-                document_path=analyzer_document_path,
-                search_paths=search_paths or None,
-            )
-        ]
+            if diagnostic_path is not None:
+                payload["path"] = diagnostic_path
+            diagnostics.append(payload)
         return _emit_check_json_result(ok=not diagnostics, diagnostics=diagnostics)
 
     if mode == "render":

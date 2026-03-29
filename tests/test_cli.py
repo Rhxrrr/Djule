@@ -160,6 +160,27 @@ def Page():
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import")
         self.assertIn("exmaples.components.ui", payload["diagnostics"][0]["message"])
 
+    def test_check_json_reports_real_file_path_for_file_backed_parser_errors(self):
+        invalid_path = ROOT / "tests" / "fixtures" / "tmp_invalid_for_cli.djule"
+        invalid_path.write_text(
+            """def Page():
+    return (
+        <main>
+            <h1>Mismatch</h2>
+        </main>
+    )
+"""
+        )
+        self.addCleanup(lambda: invalid_path.unlink(missing_ok=True))
+
+        result = self.run_cli("check-json", str(invalid_path))
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["path"], str(invalid_path.resolve()))
+        self.assertIn(str(invalid_path.resolve()), payload["diagnostics"][0]["message"])
+
     def test_check_json_rejects_malformed_multiline_embedded_block(self):
         invalid_source = """from examples.components.ui import Card
 
