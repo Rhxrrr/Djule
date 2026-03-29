@@ -31,6 +31,7 @@ Make the v1 examples readable in VS Code before building parser-aware semantic h
 - Otherwise it asks the Python extension for the workspace-selected interpreter, then falls back to common local environment names like `.venv`, `venv`, and `env`, and only uses `python3` as a last resort.
 - You can still override the interpreter explicitly with the `djule.pythonCommand` VS Code setting.
 - The extension auto-detects the Djule project root by walking upward from the file until it finds the local `src/djule` package layout.
+- If no local Djule source tree is found, the extension falls back to the current workspace folder so completions and diagnostics still work in apps that only consume the published `djule` package.
 - If auto-detection fails, set `djule.projectRoot` to the absolute repo path.
 - You can disable live checking with the `djule.liveSyntax` setting.
 
