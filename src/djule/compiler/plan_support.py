@@ -12,8 +12,10 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     ElementNode,
     ExpressionNode,
+    FragmentNode,
     MarkupNode,
     PythonExpr,
     TextNode,
@@ -96,7 +98,10 @@ class DjulePlanMixin:
                 compiled[statement.target] = ("expr", self._rewrite_python_expr(statement.value.source, compiled))
                 continue
 
-            if isinstance(statement.value, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+            if isinstance(
+                statement.value,
+                (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode),
+            ):
                 compiled[statement.target] = ("plan", self._compile_markup_plan(statement.value, compiled))
                 continue
 
@@ -110,6 +115,12 @@ class DjulePlanMixin:
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
         """Compile one markup subtree into render-plan parts."""
+        if isinstance(node, FragmentNode):
+            return self._compile_children_plan(node.children, bindings)
+
+        if isinstance(node, DeclarationNode):
+            return [StaticPart(node.value)]
+
         if isinstance(node, TextNode):
             return [StaticPart(node.value)]
 

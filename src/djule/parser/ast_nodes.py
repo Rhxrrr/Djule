@@ -69,6 +69,20 @@ class EmbeddedExprNode:
 
 
 @dataclass(frozen=True)
+class DeclarationNode:
+    """A raw markup declaration such as `<!doctype html>`."""
+    value: str
+    type: str = field(init=False, default="DeclarationNode")
+
+
+@dataclass(frozen=True)
+class FragmentNode:
+    """A transparent container for adjacent markup nodes returned together."""
+    children: list["MarkupNode"]
+    type: str = field(init=False, default="FragmentNode")
+
+
+@dataclass(frozen=True)
 class ElementNode:
     """A plain HTML-like tag with attributes and child markup nodes."""
     tag: str
@@ -174,7 +188,7 @@ class BlockNode:
     type: str = field(init=False, default="BlockNode")
 
 
-MarkupNode = Union[ElementNode, ComponentNode, TextNode, ExpressionNode, BlockNode]
+MarkupNode = Union[FragmentNode, DeclarationNode, ElementNode, ComponentNode, TextNode, ExpressionNode, BlockNode]
 AssignValue = Union[PythonExpr, MarkupNode]
 BlockItem = Union[MarkupNode, EmbeddedAssignNode, EmbeddedIfNode, EmbeddedForNode, EmbeddedExprNode]
 

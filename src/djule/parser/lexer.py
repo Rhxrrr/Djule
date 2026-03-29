@@ -92,6 +92,10 @@ class DjuleLexer:
                 self._lex_string()
                 continue
 
+            if self._starts_markup_declaration():
+                self._lex_markup_declaration()
+                continue
+
             if self._starts_markup_fragment():
                 self._lex_markup_fragment()
                 continue
@@ -329,6 +333,18 @@ class DjuleLexer:
 
         return next_char == "/" and self.peek(2).isalpha()
 
+    def _starts_markup_declaration(self) -> bool:
+        """Return whether the current position begins a supported declaration.
+
+        Djule currently recognizes HTML-style declarations that start with
+        `<!doctype`, case-insensitively. Other `<!...>` forms are left
+        unsupported for now so they can fail explicitly instead of being
+        mis-tokenized as text.
+        """
+        if self.peek() != "<" or self.peek(1) != "!":
+            return False
+        return self.source[self.index : self.index + 9].lower() == "<!doctype"
+
     def _lex_markup_fragment(self) -> None:
         """Lex a complete markup fragment, including nested child tags.
 
@@ -340,6 +356,10 @@ class DjuleLexer:
         tag_stack: list[tuple[str, bool]] = []
 
         while not self.is_at_end():
+            if self._starts_markup_declaration():
+                self._lex_markup_declaration()
+                continue
+
             if self._starts_markup_fragment():
                 name, is_component, is_closing = self._lex_tag()
                 if is_closing:
@@ -362,9 +382,33 @@ class DjuleLexer:
                 self._lex_markup_expression()
                 continue
 
+            if self.peek() == "<":
+                raise LexerError("Expected tag or markup declaration", self.line, self.column)
+
             self._lex_markup_text()
 
         raise LexerError("Unterminated markup fragment", self.line, self.column)
+
+    def _lex_markup_declaration(self) -> None:
+        """Lex a raw markup declaration such as `<!doctype html>`.
+
+        The full declaration is preserved as one token because Djule currently
+        emits declarations verbatim during rendering. If the closing `>` is
+        missing, tokenization fails at the opening declaration boundary.
+        """
+        line, column = self.line, self.column
+        start = self.index
+
+        self.advance()  # <
+        self.advance()  # !
+        while not self.is_at_end() and self.peek() != ">":
+            self.advance()
+
+        if self.is_at_end():
+            raise LexerError("Unterminated markup declaration", line, column)
+
+        self.advance()  # >
+        self._push_token(TokenType.DECLARATION, self.source[start:self.index], line, column)
 
     def _lex_tag(self) -> tuple[str, bool, bool]:
         """Lex one opening or closing tag and return its classification.

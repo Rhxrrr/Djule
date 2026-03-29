@@ -13,6 +13,7 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     ElementNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
@@ -21,6 +22,7 @@ from djule.parser.ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    FragmentNode,
     IfStmt,
     MarkupNode,
     PythonExpr,
@@ -208,6 +210,12 @@ class DjuleRenderMixin:
 
     def _render_markup_node(self, node: MarkupNode, env: dict[str, object]) -> SafeHtml:
         """Render one markup AST node into safe HTML."""
+        if isinstance(node, FragmentNode):
+            return self._render_children(node.children, env)
+
+        if isinstance(node, DeclarationNode):
+            return SafeHtml(node.value)
+
         if isinstance(node, TextNode):
             return SafeHtml(node.value)
 
@@ -334,7 +342,7 @@ class DjuleRenderMixin:
         fragments: list[str],
     ) -> None:
         """Execute one embedded block item and emit or bind values as needed."""
-        if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+        if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
             fragments.append(str(self._render_markup_node(item, env)))
             return
 

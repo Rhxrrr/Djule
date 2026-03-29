@@ -35,6 +35,22 @@ class LexerTests(unittest.TestCase):
         self.assertIn("Button", values)
         self.assertIn("Continue", values)
 
+    def test_doctype_tokenizes_as_markup_declaration(self):
+        source = """def Page():
+    return (
+        <!doctype html>
+        <html>
+            <body>Hello</body>
+        </html>
+    )
+"""
+
+        tokens = DjuleLexer(source).tokenize()
+
+        self.assertIn(TokenType.DECLARATION, [token.type for token in tokens])
+        declaration = next(token for token in tokens if token.type == TokenType.DECLARATION)
+        self.assertEqual(declaration.value, "<!doctype html>")
+
     def test_children_example_has_component_nodes_and_text(self):
         tokens = self.lex("03_children.djule")
         values = [token.value for token in tokens]

@@ -8,11 +8,13 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     EmbeddedExprNode,
     EmbeddedForNode,
     EmbeddedIfNode,
     ElementNode,
     ExpressionNode,
+    FragmentNode,
     IfStmt,
     ImportFrom,
     ImportModule,
@@ -149,6 +151,25 @@ def Page():
         self.assertIsInstance(actions.children[0], BlockNode)
         self.assertIsInstance(actions.children[0].statements[0], EmbeddedForNode)
         self.assertIsInstance(actions.children[0].statements[0].body[0], ComponentNode)
+
+    def test_doctype_and_html_parse_as_fragment_return_value(self):
+        source = """
+def Page():
+    return (
+        <!doctype html>
+        <html>
+            <body>Hello</body>
+        </html>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, FragmentNode)
+        self.assertIsInstance(root.children[0], DeclarationNode)
+        self.assertEqual(root.children[0].value, "<!doctype html>")
+        self.assertIsInstance(root.children[1], ElementNode)
+        self.assertEqual(root.children[1].tag, "html")
 
     def test_children_attribute_is_rejected_on_component_tags(self):
         source = """

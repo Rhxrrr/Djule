@@ -65,6 +65,19 @@ class RendererTests(unittest.TestCase):
         self.assertGreater(stats["compiled_expressions"], 0)
         self.assertGreater(stats["render_plans"], 0)
 
+    def test_doctype_renders_without_embedded_block_workaround(self):
+        source = """def Page():
+    return (
+        <!doctype html>
+        <html>
+            <body>Hello</body>
+        </html>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(renderer.render(), "<!doctype html><html><body>Hello</body></html>")
+
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
         first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
