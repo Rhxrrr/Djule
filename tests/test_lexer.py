@@ -51,6 +51,22 @@ class LexerTests(unittest.TestCase):
         declaration = next(token for token in tokens if token.type == TokenType.DECLARATION)
         self.assertEqual(declaration.value, "<!doctype html>")
 
+    def test_self_closing_tags_tokenize_with_dedicated_tag_end(self):
+        source = """def Page():
+    return (
+        <main>
+            <img src="hero.png" />
+            <Button variant="primary" />
+        </main>
+    )
+"""
+
+        tokens = DjuleLexer(source).tokenize()
+
+        self.assertEqual(sum(token.type == TokenType.SELF_TAG_END for token in tokens), 2)
+        self.assertIn("img", [token.value for token in tokens if token.type == TokenType.HTML_TAG_OPEN])
+        self.assertIn("Button", [token.value for token in tokens if token.type == TokenType.COMPONENT_TAG_OPEN])
+
     def test_children_example_has_component_nodes_and_text(self):
         tokens = self.lex("03_children.djule")
         values = [token.value for token in tokens]

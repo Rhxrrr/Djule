@@ -367,7 +367,7 @@ class DjuleLexer:
                 continue
 
             if self._starts_markup_fragment():
-                name, is_component, is_closing = self._lex_tag()
+                name, is_component, is_closing, is_self_closing = self._lex_tag()
                 if is_closing:
                     if not tag_stack:
                         raise self._error("Unexpected closing tag", self.line, self.column)
@@ -380,7 +380,7 @@ class DjuleLexer:
                         )
                     if not tag_stack:
                         return
-                else:
+                elif not is_self_closing:
                     tag_stack.append((name, is_component))
                 continue
 
@@ -416,12 +416,13 @@ class DjuleLexer:
         self.advance()  # >
         self._push_token(TokenType.DECLARATION, self.source[start:self.index], line, column)
 
-    def _lex_tag(self) -> tuple[str, bool, bool]:
+    def _lex_tag(self) -> tuple[str, bool, bool, bool]:
         """Lex one opening or closing tag and return its classification.
 
-        The returned tuple is `(name, is_component, is_closing)`. Tag names may
-        include `_`, `-`, and `.` so namespaced component tags are supported.
-        If the tag has no name or never closes with `>`, tokenization fails.
+        The returned tuple is `(name, is_component, is_closing, is_self_closing)`.
+        Tag names may include `_`, `-`, and `.` so namespaced component tags are
+        supported. Opening tags may end with `/>`; closing tags must still end
+        with a plain `>`.
         """
         line, column = self.line, self.column
         is_closing = self.peek(1) == "/"
@@ -452,12 +453,18 @@ class DjuleLexer:
         while not self.is_at_end() and self.peek() in " \t":
             self.advance()
 
+        if not is_closing and self.peek() == "/" and self.peek(1) == ">":
+            self._push_token(TokenType.SELF_TAG_END, "/>", self.line, self.column)
+            self.advance()
+            self.advance()
+            return name, is_component, is_closing, True
+
         if self.peek() != ">":
             raise self._error("Expected > to close tag", self.line, self.column)
 
         self._push_token(TokenType.TAG_END, ">", self.line, self.column)
         self.advance()
-        return name, is_component, is_closing
+        return name, is_component, is_closing, False
 
     def _lex_tag_attributes(self, tag_name: str, tag_line: int, tag_column: int) -> None:
         """Lex all attributes for the current opening tag.
@@ -474,7 +481,11 @@ class DjuleLexer:
             if self.peek() in {">", ""}:
                 return
 
-            if self.peek() in {"<", "/"}:
+            if self.peek() == "<":
+                raise self._error(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
+            if self.peek() == "/":
+                if self.peek(1) == ">":
+                    return
                 raise self._error(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
 
             line, column = self.line, self.column

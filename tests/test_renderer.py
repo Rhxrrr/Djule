@@ -78,6 +78,27 @@ class RendererTests(unittest.TestCase):
         renderer = DjuleRenderer.from_source(source)
         self.assertEqual(renderer.render(), "<!doctype html><html><body>Hello</body></html>")
 
+    def test_self_closing_html_and_component_tags_render(self):
+        source = """def Button(variant, children):
+    return (
+        <button data-variant={variant}>{children}</button>
+    )
+
+def Page():
+    return (
+        <main>
+            <img src="hero.png" />
+            <Button variant="primary" />
+        </main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(),
+            '<main><img src="hero.png" /><button data-variant="primary"></button></main>',
+        )
+
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
         first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))

@@ -10,30 +10,34 @@ const {
 } = require("./symbols");
 
 function provideDjuleCompletions(document, position, context, configuration) {
-  const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
-  const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
-  const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
-  const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd);
+  try {
+    const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
+    const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
+    const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
+    const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd);
 
-  if (importItems !== null) {
-    return importItems;
-  }
+    if (importItems !== null) {
+      return importItems;
+    }
 
-  if (isComponentAttributeContext(linePrefix)) {
-    return buildAttributeCompletions(linePrefix, position, symbols);
-  }
+    if (isComponentAttributeContext(linePrefix)) {
+      return buildAttributeCompletions(linePrefix, position, symbols);
+    }
 
-  if (isTagContext(linePrefix)) {
-    return buildTagCompletions(linePrefix, position, symbols);
-  }
+    if (isTagContext(linePrefix)) {
+      return buildTagCompletions(linePrefix, position, symbols);
+    }
 
-  if (isMemberAccessContext(linePrefix)) {
-    return buildMemberAccessCompletions(linePrefix, position, symbols);
-  }
+    if (isMemberAccessContext(linePrefix)) {
+      return buildMemberAccessCompletions(linePrefix, position, symbols);
+    }
 
-  const codeItems = buildCodeCompletions(document, position, symbols);
-  if (codeItems !== null) {
-    return codeItems;
+    const codeItems = buildCodeCompletions(document, position, symbols);
+    if (codeItems !== null) {
+      return codeItems;
+    }
+  } catch (_error) {
+    // Fall back to generic Djule keywords/snippets instead of failing silently.
   }
 
   return buildKeywordAndSnippetCompletions(document, position);
