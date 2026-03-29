@@ -92,6 +92,33 @@ def dashboard_view(request):
 
 Set `DJULE_IMPORT_ROOTS` in Django settings if you want explicit import roots. Otherwise Djule falls back to `BASE_DIR`.
 
+Djule can also consume Django-style global context processors. It reads the standard Django template engine `TEMPLATES[..].OPTIONS.context_processors` list, and you can append Djule-only ones with `DJULE_CONTEXT_PROCESSORS`.
+
+Example:
+
+```python
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "app.utils.context_processors.debug_variable",
+                "app.utils.context_processors.vite_host",
+            ],
+        },
+    },
+]
+
+DJULE_CONTEXT_PROCESSORS = [
+    "app.utils.context_processors.extra_djule_globals",
+]
+```
+
+Those values are merged into every `render_djule(...)` / `render_djule_response(...)` call before explicit `props`, so explicit props still override globals when needed.
+
 When rendering through the Django integration, Djule also recognizes `{% csrf_token %}` inside markup and injects the request token automatically:
 
 ```python
