@@ -338,6 +338,8 @@ class DjuleParser:
         """Parse a plain HTML-like element and all of its child markup."""
         open_token = self._consume(TokenType.HTML_TAG_OPEN, "Expected HTML opening tag")
         attributes = self._parse_attributes()
+        if self._match(TokenType.SELF_TAG_END):
+            return ElementNode(tag=open_token.value, attributes=attributes, children=[], self_closing=True)
         self._consume(TokenType.TAG_END, "Expected '>' after opening tag")
         children = self._parse_children_until(TokenType.HTML_TAG_CLOSE, open_token.value)
         self._consume(TokenType.HTML_TAG_CLOSE, f"Expected closing tag </{open_token.value}>")
@@ -357,6 +359,15 @@ class DjuleParser:
                 raise self._error(
                     "The 'children' prop is reserved for nested component content; use content between the tags instead"
                 )
+        if self._match(TokenType.SELF_TAG_END):
+            return ComponentNode(
+                name=open_token.value,
+                attributes=attributes,
+                children=[],
+                self_closing=True,
+                line=open_token.line,
+                column=open_token.column,
+            )
         self._consume(TokenType.TAG_END, "Expected '>' after opening component tag")
         children = self._parse_children_until(TokenType.COMPONENT_TAG_CLOSE, open_token.value)
         self._consume(TokenType.COMPONENT_TAG_CLOSE, f"Expected closing tag </{open_token.value}>")
@@ -365,6 +376,7 @@ class DjuleParser:
             name=open_token.value,
             attributes=attributes,
             children=children,
+            self_closing=False,
             line=open_token.line,
             column=open_token.column,
         )
