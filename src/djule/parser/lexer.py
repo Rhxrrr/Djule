@@ -17,10 +17,14 @@ class LexerError(Exception):
     message: str
     line: int
     column: int
+    path: str | None = None
 
     def __str__(self) -> str:
         """Return a human-readable lexer error with source coordinates."""
-        return f"{self.message} at line {self.line}, column {self.column}"
+        location = f"at line {self.line}, column {self.column}"
+        if self.path:
+            return f"{self.message} in {self.path} {location}"
+        return f"{self.message} {location}"
 
 
 class DjuleLexer:
@@ -31,7 +35,7 @@ class DjuleLexer:
     focused on source boundaries and Djule-specific syntax.
     """
 
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, *, source_path: str | None = None) -> None:
         """Initialize lexer state for a raw Djule source string.
 
         The lexer tracks the current source position, block indentation stack,
@@ -40,6 +44,7 @@ class DjuleLexer:
         without needing parser context.
         """
         self.source = source
+        self.source_path = source_path
         self.length = len(source)
         self.index = 0
         self.line = 1
@@ -55,7 +60,8 @@ class DjuleLexer:
     @classmethod
     def from_file(cls, path: str | Path) -> "DjuleLexer":
         """Create a lexer from a file path by reading the full source text."""
-        return cls(Path(path).read_text())
+        resolved_path = Path(path).resolve()
+        return cls(resolved_path.read_text(), source_path=str(resolved_path))
 
     def tokenize(self) -> list[Token]:
         """Tokenize the full source into Djule tokens.
@@ -114,10 +120,10 @@ class DjuleLexer:
             if self._match_operator():
                 continue
 
-            raise LexerError("Unexpected character", self.line, self.column)
+            raise self._error("Unexpected character", self.line, self.column)
 
         if self._expects_indent or (self.paren_depth == 0 and self._last_significant_token_type == TokenType.COLON):
-            raise LexerError("Expected indented block", self.line, 1)
+            raise self._error("Expected indented block", self.line, 1)
 
         if self.tokens and self.tokens[-1].type != TokenType.NEWLINE:
             self._push_token(TokenType.NEWLINE, "", self.line, self.column)
@@ -145,7 +151,7 @@ class DjuleLexer:
             self.advance()
         
         if not self.is_at_end() and self.peek() == "\t":
-            raise LexerError("Tabs are not supported for indentation", self.line, self.column)
+            raise self._error("Tabs are not supported for indentation", self.line, self.column)
 
         next_char = self.peek() if not self.is_at_end() else ""
 
@@ -156,18 +162,18 @@ class DjuleLexer:
         current_indent = self.indent_stack[-1]
         if self._expects_indent:
             if indent <= current_indent:
-                raise LexerError("Expected indented block", self.line, 1)
+                raise self._error("Expected indented block", self.line, 1)
             self.indent_stack.append(indent)
             self._push_token(TokenType.INDENT, "", self.line, 1)
             self._expects_indent = False
         elif indent > current_indent:
-            raise LexerError("Unexpected indentation", self.line, 1)
+            raise self._error("Unexpected indentation", self.line, 1)
         elif indent < current_indent:
             while len(self.indent_stack) > 1 and indent < self.indent_stack[-1]:
                 self.indent_stack.pop()
                 self._push_token(TokenType.DEDENT, "", self.line, 1)
             if indent != self.indent_stack[-1]:
-                raise LexerError("Inconsistent indentation", self.line, 1)
+                raise self._error("Inconsistent indentation", self.line, 1)
         
 
     def _skip_comment(self) -> None:
@@ -261,7 +267,7 @@ class DjuleLexer:
             if ch == quote:
                 break
         else:
-            raise LexerError("Unterminated string", line, column)
+            raise self._error("Unterminated string", line, column)
 
         self._push_token(TokenType.STRING, self.source[start:self.index], line, column)
 
@@ -364,10 +370,10 @@ class DjuleLexer:
                 name, is_component, is_closing = self._lex_tag()
                 if is_closing:
                     if not tag_stack:
-                        raise LexerError("Unexpected closing tag", self.line, self.column)
+                        raise self._error("Unexpected closing tag", self.line, self.column)
                     expected_name, expected_component = tag_stack.pop()
                     if (name, is_component) != (expected_name, expected_component):
-                        raise LexerError(
+                        raise self._error(
                             f"Expected closing tag for {expected_name}",
                             self.line,
                             self.column,
@@ -383,11 +389,11 @@ class DjuleLexer:
                 continue
 
             if self.peek() == "<":
-                raise LexerError("Expected tag or markup declaration", self.line, self.column)
+                raise self._error("Expected tag or markup declaration", self.line, self.column)
 
             self._lex_markup_text()
 
-        raise LexerError("Unterminated markup fragment", self.line, self.column)
+        raise self._error("Unterminated markup fragment", self.line, self.column)
 
     def _lex_markup_declaration(self) -> None:
         """Lex a raw markup declaration such as `<!doctype html>`.
@@ -405,7 +411,7 @@ class DjuleLexer:
             self.advance()
 
         if self.is_at_end():
-            raise LexerError("Unterminated markup declaration", line, column)
+            raise self._error("Unterminated markup declaration", line, column)
 
         self.advance()  # >
         self._push_token(TokenType.DECLARATION, self.source[start:self.index], line, column)
@@ -429,7 +435,7 @@ class DjuleLexer:
 
         name = self.source[start:self.index]
         if not name:
-            raise LexerError("Expected tag name", line, column)
+            raise self._error("Expected tag name", line, column)
 
         is_component = "." in name or name[0].isupper()
         token_type = {
@@ -447,7 +453,7 @@ class DjuleLexer:
             self.advance()
 
         if self.peek() != ">":
-            raise LexerError("Expected > to close tag", self.line, self.column)
+            raise self._error("Expected > to close tag", self.line, self.column)
 
         self._push_token(TokenType.TAG_END, ">", self.line, self.column)
         self.advance()
@@ -469,7 +475,7 @@ class DjuleLexer:
                 return
 
             if self.peek() in {"<", "/"}:
-                raise LexerError(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
+                raise self._error(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
 
             line, column = self.line, self.column
             start = self.index
@@ -477,14 +483,14 @@ class DjuleLexer:
                 self.advance()
             name = self.source[start:self.index]
             if not name:
-                raise LexerError("Expected attribute name", line, column)
+                raise self._error("Expected attribute name", line, column)
             self._push_token(TokenType.ATTR_NAME, name, line, column)
 
             while not self.is_at_end() and self.peek() in " \t":
                 self.advance()
 
             if self.peek() != "=":
-                raise LexerError("Expected = after attribute name", self.line, self.column)
+                raise self._error("Expected = after attribute name", self.line, self.column)
             self._push_token(TokenType.EQUALS, "=", self.line, self.column)
             self.advance()
 
@@ -496,7 +502,7 @@ class DjuleLexer:
             elif self.peek() == "{":
                 self._lex_markup_expression()
             else:
-                raise LexerError("Expected string or {expr} attribute value", self.line, self.column)
+                raise self._error("Expected string or {expr} attribute value", self.line, self.column)
 
     def _lex_markup_expression(self) -> None:
         """Lex a Djule `{...}` region embedded inside markup.
@@ -550,7 +556,7 @@ class DjuleLexer:
 
             chars.append(ch)
 
-        raise LexerError("Unterminated markup expression", line, column)
+        raise self._error("Unterminated markup expression", line, column)
 
     def _emit_embedded_source_tokens(self, source: str, line: int, column: int) -> None:
         """Re-lex embedded `{...}` source and map tokens back to outer positions.
@@ -699,3 +705,7 @@ class DjuleLexer:
         self.tokens.append(Token(token_type, value, line, column))
         if token_type not in {TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT}:
             self._last_significant_token_type = token_type
+
+    def _error(self, message: str, line: int, column: int) -> LexerError:
+        """Create a lexer error that carries the current source path when known."""
+        return LexerError(message=message, line=line, column=column, path=self.source_path)
