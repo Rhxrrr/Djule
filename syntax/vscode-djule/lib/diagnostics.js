@@ -33,8 +33,25 @@ function registerDiagnostics(context) {
     }
 
     const configuration = vscode.workspace.getConfiguration("djule", document);
-    const pythonCommand = await resolvePythonCommand(document, configuration);
-    const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
+    let pythonCommand;
+    let runtimeRoot;
+    try {
+      pythonCommand = await resolvePythonCommand(document, configuration);
+      runtimeRoot = resolveRuntimeRoot(document, context, configuration);
+    } catch (error) {
+      if (document.isClosed || document.version !== expectedVersion) {
+        return;
+      }
+
+      diagnostics.set(document.uri, [
+        new vscode.Diagnostic(
+          fallbackRange(document),
+          `Djule extension failed to prepare live syntax checking: ${error.message}`,
+          vscode.DiagnosticSeverity.Error
+        ),
+      ]);
+      return;
+    }
 
     const child = cp.spawn(
       pythonCommand,

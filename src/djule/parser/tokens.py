@@ -44,6 +44,7 @@ class TokenType(str, Enum):
     DECLARATION = "DECLARATION"  # raw markup declaration such as <!doctype html>
     CSRF_TOKEN_TAG = "CSRF_TOKEN_TAG"  # literal "{% csrf_token %}" markup tag
     TAG_END = "TAG_END"  # literal ">" that ends an opening/closing tag
+    SELF_TAG_END = "SELF_TAG_END"  # literal "/>" that ends a self-closing opening tag
     ATTR_NAME = "ATTR_NAME"  # attribute name inside a tag (e.g. class, id, custom props)
     TEXT = "TEXT"  # plain text content inside markup
     EXPR = "EXPR"  # embedded expression inside markup: { python_expression }

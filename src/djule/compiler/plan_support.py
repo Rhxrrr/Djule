@@ -138,6 +138,9 @@ class DjulePlanMixin:
             parts: list[PlanPart] = [StaticPart(f"<{node.tag}")]
             for attribute in node.attributes:
                 parts.extend(self._compile_attribute_parts(attribute, bindings))
+            if node.self_closing:
+                parts.append(StaticPart(" />"))
+                return self._merge_static_parts(parts)
             parts.append(StaticPart(">"))
             parts.extend(self._compile_children_plan(node.children, bindings))
             parts.append(StaticPart(f"</{node.tag}>"))
@@ -239,6 +242,8 @@ class DjulePlanMixin:
             self._track_plan_dependency(component.renderer.module_path)
 
         prop_bindings = self._build_component_bindings(node, bindings)
+        if self._component_accepts_children(component) and "children" not in prop_bindings:
+            prop_bindings["children"] = ("literal", SafeHtml(""))
 
         static_props = self._static_props_from_bindings(prop_bindings)
         if static_props is not None and (
