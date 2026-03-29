@@ -171,6 +171,31 @@ def Page():
         self.assertIsInstance(root.children[1], ElementNode)
         self.assertEqual(root.children[1].tag, "html")
 
+    def test_self_closing_html_and_component_tags_parse(self):
+        source = """
+def Page():
+    return (
+        <main>
+            <img src="hero.png" />
+            <Button variant="primary" />
+        </main>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ElementNode)
+
+        image = root.children[0]
+        self.assertIsInstance(image, ElementNode)
+        self.assertTrue(image.self_closing)
+        self.assertEqual(image.children, [])
+
+        button = root.children[1]
+        self.assertIsInstance(button, ComponentNode)
+        self.assertTrue(button.self_closing)
+        self.assertEqual(button.children, [])
+
     def test_children_attribute_is_rejected_on_component_tags(self):
         source = """
 def Page():

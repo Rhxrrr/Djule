@@ -133,10 +133,10 @@ class DjulePrinter:
             return self._print_embedded_block(node, indent)
 
         if isinstance(node, ElementNode):
-            return self._print_tag_block(node.tag, node.attributes, node.children, indent)
+            return self._print_tag_block(node.tag, node.attributes, node.children, node.self_closing, indent)
 
         if isinstance(node, ComponentNode):
-            return self._print_tag_block(node.name, node.attributes, node.children, indent)
+            return self._print_tag_block(node.name, node.attributes, node.children, node.self_closing, indent)
 
         raise TypeError(f"Unsupported markup node: {type(node)!r}")
 
@@ -154,6 +154,7 @@ class DjulePrinter:
         name: str,
         attributes: list[AttributeNode],
         children: list[MarkupNode],
+        self_closing: bool,
         indent: int,
     ) -> list[str]:
         """Render either an HTML tag or component tag block.
@@ -163,6 +164,9 @@ class DjulePrinter:
         """
         prefix = "    " * indent
         open_tag = self._format_open_tag(name, attributes)
+
+        if self_closing:
+            return [f"{prefix}{open_tag[:-1]} />"]
 
         if not children:
             return [f"{prefix}{open_tag}</{name}>"]
@@ -207,10 +211,14 @@ class DjulePrinter:
         if isinstance(node, BlockNode):
             raise TypeError("Embedded blocks cannot be printed inline")
         if isinstance(node, ElementNode):
+            if node.self_closing:
+                return f"{self._format_open_tag(node.tag, node.attributes)[:-1]} />"
             open_tag = self._format_open_tag(node.tag, node.attributes)
             children = "".join(self._print_inline_markup(child) for child in node.children)
             return f"{open_tag}{children}</{node.tag}>"
         if isinstance(node, ComponentNode):
+            if node.self_closing:
+                return f"{self._format_open_tag(node.name, node.attributes)[:-1]} />"
             open_tag = self._format_open_tag(node.name, node.attributes)
             children = "".join(self._print_inline_markup(child) for child in node.children)
             return f"{open_tag}{children}</{node.name}>"
