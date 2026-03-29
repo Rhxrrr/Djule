@@ -98,7 +98,6 @@ def Page():
             renderer.render(),
             '<main><img src="hero.png" /><button data-variant="primary"></button></main>',
         )
-
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
         first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))

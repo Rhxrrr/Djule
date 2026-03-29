@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from djule.compiler import DjuleRenderer
 
@@ -20,6 +21,102 @@ def _get_settings(settings_obj=None):
         raise RuntimeError("Django integration requires Django to be installed") from exc
 
     return settings
+
+
+def _resolve_context_processor(processor: str | Callable[[object], object]) -> Callable[[object], object]:
+    """Resolve one Djule context processor from a callable or dotted import path.
+
+    String values must be fully qualified import paths. Non-callable resolved
+    objects raise a targeted error so misconfigured global props fail early.
+    """
+    if callable(processor):
+        return processor
+
+    if not isinstance(processor, str):
+        raise TypeError("Djule context processors must be callables or dotted import paths")
+
+    module_name, separator, attr_name = processor.rpartition(".")
+    if not separator or not module_name or not attr_name:
+        raise ValueError(f"Invalid Djule context processor path '{processor}'")
+
+    module = import_module(module_name)
+    resolved = getattr(module, attr_name)
+    if not callable(resolved):
+        raise TypeError(f"Djule context processor '{processor}' did not resolve to a callable")
+    return resolved
+
+
+def get_djule_context_processors(
+    *,
+    settings_obj=None,
+    extra_processors: Sequence[str | Callable[[object], object]] | None = None,
+) -> list[Callable[[object], object]]:
+    """Resolve the ordered Djule context processors for Django rendering.
+
+    Djule mirrors Django's context-processor style by reading
+    `TEMPLATES[..].OPTIONS.context_processors`, then appending any optional
+    `DJULE_CONTEXT_PROCESSORS`. Extra processors passed directly to the render
+    helper are added last. Duplicate entries are removed while preserving order.
+    """
+    settings = _get_settings(settings_obj)
+    configured: list[str | Callable[[object], object]] = []
+
+    for template in getattr(settings, "TEMPLATES", []) or []:
+        if not isinstance(template, dict):
+            continue
+        if template.get("BACKEND") != "django.template.backends.django.DjangoTemplates":
+            continue
+        options = template.get("OPTIONS")
+        if not isinstance(options, dict):
+            continue
+        processors = options.get("context_processors")
+        if isinstance(processors, Sequence) and not isinstance(processors, (str, bytes)):
+            configured.extend(processors)
+
+    djule_specific = getattr(settings, "DJULE_CONTEXT_PROCESSORS", None)
+    if isinstance(djule_specific, Sequence) and not isinstance(djule_specific, (str, bytes)):
+        configured.extend(djule_specific)
+
+    if extra_processors:
+        configured.extend(extra_processors)
+
+    resolved_processors: list[Callable[[object], object]] = []
+    seen: set[object] = set()
+    for processor in configured:
+        if processor in seen:
+            continue
+        seen.add(processor)
+        resolved_processors.append(_resolve_context_processor(processor))
+
+    return resolved_processors
+
+
+def build_djule_context(
+    request,
+    *,
+    settings_obj=None,
+    context_processors: Sequence[str | Callable[[object], object]] | None = None,
+) -> dict[str, object]:
+    """Evaluate Djule context processors into one shared props dictionary.
+
+    Later processors override earlier ones, matching Django's general context
+    layering style. Each processor may return `None` to contribute nothing; any
+    other non-mapping return value raises an error so bad global context stays
+    visible during development.
+    """
+    context: dict[str, object] = {}
+    for processor in get_djule_context_processors(
+        settings_obj=settings_obj,
+        extra_processors=context_processors,
+    ):
+        values = processor(request)
+        if values is None:
+            continue
+        if not isinstance(values, Mapping):
+            processor_name = getattr(processor, "__name__", repr(processor))
+            raise TypeError(f"Djule context processor '{processor_name}' must return a mapping or None")
+        context.update(values)
+    return context
 
 
 def get_djule_search_paths(
@@ -223,6 +320,7 @@ def render_djule(
     component_registry: Mapping[str, object] | None = None,
     builtins: Mapping[str, object] | None = None,
     include_request_prop: bool = False,
+    context_processors: Sequence[str | Callable[[object], object]] | None = None,
     settings_obj=None,
 ) -> str:
     """Render a Djule template to HTML for use inside a Django project.
@@ -235,7 +333,12 @@ def render_djule(
     resolved_search_paths = get_djule_search_paths(settings_obj=settings_obj, extra_paths=search_paths)
     template_path = resolve_djule_template(template_name, search_paths=resolved_search_paths)
 
-    render_props = dict(props or {})
+    render_props = build_djule_context(
+        request,
+        settings_obj=settings_obj,
+        context_processors=context_processors,
+    )
+    render_props.update(props or {})
     if include_request_prop and request is not None and "request" not in render_props:
         render_props["request"] = request
 
@@ -258,6 +361,7 @@ def render_djule_response(
     component_registry: Mapping[str, object] | None = None,
     builtins: Mapping[str, object] | None = None,
     include_request_prop: bool = False,
+    context_processors: Sequence[str | Callable[[object], object]] | None = None,
     status: int = 200,
     content_type: str = "text/html; charset=utf-8",
     headers: Mapping[str, str] | None = None,
@@ -278,6 +382,7 @@ def render_djule_response(
         component_registry=component_registry,
         builtins=builtins,
         include_request_prop=include_request_prop,
+        context_processors=context_processors,
         settings_obj=settings_obj,
     )
     return HttpResponse(html, status=status, content_type=content_type, headers=headers)

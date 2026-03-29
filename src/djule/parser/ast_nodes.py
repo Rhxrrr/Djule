@@ -74,7 +74,6 @@ class DeclarationNode:
     value: str
     type: str = field(init=False, default="DeclarationNode")
 
-
 @dataclass(frozen=True)
 class FragmentNode:
     """A transparent container for adjacent markup nodes returned together."""
