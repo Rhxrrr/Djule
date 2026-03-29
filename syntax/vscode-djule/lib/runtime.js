@@ -2,6 +2,35 @@ const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
 
+async function resolvePythonCommand(document, configuration) {
+  const configuredCommand = normalizePythonCommand(configuration.get("pythonCommand", ""));
+  if (configuredCommand) {
+    return configuredCommand;
+  }
+
+  const selectedInterpreter = await resolveSelectedPythonInterpreter(document);
+  if (selectedInterpreter) {
+    return selectedInterpreter;
+  }
+
+  const defaultInterpreterPath = normalizePythonCommand(
+    vscode.workspace.getConfiguration("python", document).get("defaultInterpreterPath", "")
+  );
+  if (defaultInterpreterPath && fs.existsSync(defaultInterpreterPath)) {
+    return defaultInterpreterPath;
+  }
+
+  for (const directory of listRuntimeCandidateDirectories(document)) {
+    for (const interpreterPath of possibleInterpreterPaths(directory)) {
+      if (fs.existsSync(interpreterPath)) {
+        return interpreterPath;
+      }
+    }
+  }
+
+  return "python3";
+}
+
 function listDjuleModules(document, runtimeRoot, modulePrefix) {
   if (!modulePrefix) {
     return [];
@@ -55,27 +84,9 @@ function resolveImportedModulePath(document, moduleName, runtimeRoot) {
 
 function resolveRuntimeRoot(document, context, configuration) {
   const configuredRoot = configuration.get("projectRoot", "").trim();
-  const candidates = [];
-
+  const candidates = listRuntimeCandidateDirectories(document);
   if (configuredRoot) {
-    candidates.push(configuredRoot);
-  }
-
-  if (document.uri.scheme === "file") {
-    let currentDir = path.dirname(document.uri.fsPath);
-    while (true) {
-      candidates.push(currentDir);
-      const parent = path.dirname(currentDir);
-      if (parent === currentDir) {
-        break;
-      }
-      currentDir = parent;
-    }
-  }
-
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-  if (workspaceFolder) {
-    candidates.push(workspaceFolder.uri.fsPath);
+    candidates.unshift(configuredRoot);
   }
 
   candidates.push(path.resolve(context.extensionPath, "..", ".."));
@@ -104,6 +115,29 @@ function resolveRuntimeRoot(document, context, configuration) {
     cwd: fallback,
     env: {},
   };
+}
+
+function listRuntimeCandidateDirectories(document) {
+  const candidates = [];
+
+  if (document.uri.scheme === "file") {
+    let currentDir = path.dirname(document.uri.fsPath);
+    while (true) {
+      candidates.push(currentDir);
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir) {
+        break;
+      }
+      currentDir = parent;
+    }
+  }
+
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+  if (workspaceFolder) {
+    candidates.push(workspaceFolder.uri.fsPath);
+  }
+
+  return dedupePaths(candidates);
 }
 
 function listAbsoluteDjuleModules(runtimeRoot, modulePrefix) {
@@ -223,6 +257,97 @@ function nextModuleSegments(modules, modulePrefix) {
   return Array.from(suggestions).sort();
 }
 
+async function resolveSelectedPythonInterpreter(document) {
+  const pythonExtension = vscode.extensions.getExtension("ms-python.python");
+  if (!pythonExtension) {
+    return "";
+  }
+
+  try {
+    await pythonExtension.activate();
+  } catch (_error) {
+    // Fall back to the remaining interpreter detection paths.
+  }
+
+  const exportedCommand = normalizePythonCommand(
+    pythonExtension.exports?.settings?.getExecutionDetails?.(document.uri)?.execCommand
+  );
+  if (exportedCommand && fs.existsSync(exportedCommand)) {
+    return exportedCommand;
+  }
+
+  for (const args of [[document.uri], []]) {
+    try {
+      const commandValue = normalizePythonCommand(await vscode.commands.executeCommand("python.interpreterPath", ...args));
+      if (commandValue && fs.existsSync(commandValue)) {
+        return commandValue;
+      }
+    } catch (_error) {
+      // Keep falling back if the command is unavailable.
+    }
+  }
+
+  return "";
+}
+
+function normalizePythonCommand(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0].trim() : "";
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.path === "string") {
+      return value.path.trim();
+    }
+    if (typeof value.command === "string") {
+      return value.command.trim();
+    }
+    if (Array.isArray(value.command) && typeof value.command[0] === "string") {
+      return value.command[0].trim();
+    }
+  }
+
+  return "";
+}
+
+function possibleInterpreterPaths(rootDir) {
+  return [
+    path.join(rootDir, ".venv", "bin", "python"),
+    path.join(rootDir, "venv", "bin", "python"),
+    path.join(rootDir, "env", "bin", "python"),
+    path.join(rootDir, ".venv", "bin", "python3"),
+    path.join(rootDir, "venv", "bin", "python3"),
+    path.join(rootDir, "env", "bin", "python3"),
+    path.join(rootDir, ".venv", "Scripts", "python.exe"),
+    path.join(rootDir, "venv", "Scripts", "python.exe"),
+    path.join(rootDir, "env", "Scripts", "python.exe"),
+  ];
+}
+
+function dedupePaths(candidates) {
+  const results = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    const resolved = safeResolve(candidate);
+    if (!resolved || seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    results.push(resolved);
+  }
+
+  return results;
+}
+
 function looksLikeDjuleProjectRoot(candidate) {
   return (
     (fs.existsSync(path.join(candidate, "src", "djule", "__init__.py")) &&
@@ -252,6 +377,7 @@ function safeResolve(candidate) {
 
 module.exports = {
   listDjuleModules,
+  resolvePythonCommand,
   resolveImportedModulePath,
   resolveRuntimeRoot,
 };

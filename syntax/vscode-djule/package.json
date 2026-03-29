@@ -2,7 +2,7 @@
   "name": "djule",
   "displayName": "Djule",
   "description": "Syntax highlighting and basic language configuration for Djule templates.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "rhxrr",
   "license": "Apache-2.0",
   "repository": {
@@ -55,8 +55,8 @@
       "properties": {
         "djule.pythonCommand": {
           "type": "string",
-          "default": "python3",
-          "description": "Python command used by the Djule VS Code extension for live syntax diagnostics."
+          "default": "",
+          "description": "Optional Python command used by the Djule VS Code extension for live syntax diagnostics. Leave empty to use the workspace-selected interpreter."
         },
         "djule.liveSyntax": {
           "type": "boolean",
