@@ -2,7 +2,7 @@
   "name": "djule",
   "displayName": "Djule",
   "description": "Syntax highlighting and basic language configuration for Djule templates.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "publisher": "rhxrr",
   "license": "Apache-2.0",
   "repository": {
