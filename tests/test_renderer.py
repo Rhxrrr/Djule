@@ -352,6 +352,43 @@ def Page(title):
             '<p>You have 2 notifications.</p></main></div>',
         )
 
+    def test_imported_component_with_embedded_block_keeps_its_prop_scope(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "layout.djule").write_text(
+                """def Document(body_class, children):
+    return (
+        {
+            current_body_class = body_class
+            <html>
+                <body class={current_body_class}>
+                    {children}
+                </body>
+            </html>
+        }
+    )
+"""
+            )
+            (root / "page.djule").write_text(
+                """from components.layout import Document
+
+def Page():
+    return (
+        <Document body_class="app-shell">
+            <main>Hello</main>
+        </Document>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            html = renderer.render()
+
+        self.assertEqual(html, '<html><body class="app-shell"><main>Hello</main></body></html>')
+
     def test_nested_content_requires_children_param(self):
         source = """
 def Icon(name):

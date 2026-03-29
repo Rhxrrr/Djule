@@ -2,7 +2,7 @@ const cp = require("child_process");
 const vscode = require("vscode");
 
 const { DIAGNOSTIC_DEBOUNCE_MS, DIAGNOSTIC_SOURCE } = require("./constants");
-const { resolveRuntimeRoot } = require("./runtime");
+const { resolvePythonCommand, resolveRuntimeRoot } = require("./runtime");
 
 function registerDiagnostics(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
@@ -27,13 +27,13 @@ function registerDiagnostics(context) {
     );
   }
 
-  function validateDocument(document, expectedVersion) {
+  async function validateDocument(document, expectedVersion) {
     if (!shouldValidate(document) || document.isClosed || document.version !== expectedVersion) {
       return;
     }
 
     const configuration = vscode.workspace.getConfiguration("djule", document);
-    const pythonCommand = configuration.get("pythonCommand", "python3");
+    const pythonCommand = await resolvePythonCommand(document, configuration);
     const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
 
     const child = cp.spawn(

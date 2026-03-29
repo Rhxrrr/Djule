@@ -298,16 +298,27 @@ class DjulePlanMixin:
             resolved = component.renderer._resolve_component(component.component_name)
             if isinstance(resolved, ComponentDef):
                 parts, requires_runtime_body = component.renderer._compile_component_with_bindings(resolved, bindings)
-                if not requires_runtime_body:
+                if not requires_runtime_body and not self._plan_parts_require_component_scope(parts):
                     return parts
             return None
 
         if isinstance(component, ComponentDef):
             parts, requires_runtime_body = self._compile_component_with_bindings(component, bindings)
-            if not requires_runtime_body:
+            if not requires_runtime_body and not self._plan_parts_require_component_scope(parts):
                 return parts
 
         return None
+
+    @staticmethod
+    def _plan_parts_require_component_scope(parts: list[PlanPart]) -> bool:
+        """Return whether inlining would lose a child component's runtime scope.
+
+        `NodePart` values keep raw AST nodes for later rendering. Those nodes
+        evaluate expressions against the environment present at render time, so
+        inlining them into a parent component would make child props resolve
+        against the wrong scope.
+        """
+        return any(isinstance(part, NodePart) for part in parts)
 
     @staticmethod
     def _binding_for_expression(
