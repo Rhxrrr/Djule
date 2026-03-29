@@ -12,7 +12,6 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
-    CsrfTokenNode,
     DeclarationNode,
     ElementNode,
     ExpressionNode,
@@ -101,7 +100,7 @@ class DjulePlanMixin:
 
             if isinstance(
                 statement.value,
-                (FragmentNode, DeclarationNode, CsrfTokenNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode),
+                (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode),
             ):
                 compiled[statement.target] = ("plan", self._compile_markup_plan(statement.value, compiled))
                 continue
@@ -121,9 +120,6 @@ class DjulePlanMixin:
 
         if isinstance(node, DeclarationNode):
             return [StaticPart(node.value)]
-
-        if isinstance(node, CsrfTokenNode):
-            return [NodePart(node)]
 
         if isinstance(node, TextNode):
             return [StaticPart(node.value)]

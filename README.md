@@ -118,15 +118,3 @@ DJULE_CONTEXT_PROCESSORS = [
 ```
 
 Those values are merged into every `render_djule(...)` / `render_djule_response(...)` call before explicit `props`, so explicit props still override globals when needed.
-
-When rendering through the Django integration, Djule also recognizes `{% csrf_token %}` inside markup and injects the request token automatically:
-
-```python
-def LoginForm():
-    return (
-        <form method="post">
-            {% csrf_token %}
-            <button type="submit">Sign in</button>
-        </form>
-    )
-```

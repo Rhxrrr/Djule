@@ -341,17 +341,6 @@ def render_djule(
     render_props.update(props or {})
     if include_request_prop and request is not None and "request" not in render_props:
         render_props["request"] = request
-    if (
-        request is not None
-        and hasattr(request, "META")
-        and "csrf_token" not in render_props
-        and "csrf_token_html" not in render_props
-    ):
-        try:
-            from django.middleware.csrf import get_token
-        except ModuleNotFoundError as exc:  # pragma: no cover - depends on optional dependency
-            raise RuntimeError("Django integration requires Django to be installed") from exc
-        render_props["csrf_token"] = get_token(request)
 
     renderer = DjuleRenderer.from_file(
         template_path,

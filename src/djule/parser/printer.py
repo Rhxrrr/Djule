@@ -7,7 +7,6 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
-    CsrfTokenNode,
     DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
@@ -124,9 +123,6 @@ class DjulePrinter:
         if isinstance(node, DeclarationNode):
             return [f"{prefix}{node.value}"]
 
-        if isinstance(node, CsrfTokenNode):
-            return [f"{prefix}{{% csrf_token %}}"]
-
         if isinstance(node, TextNode):
             return [f"{prefix}{node.value}"]
 
@@ -208,8 +204,6 @@ class DjulePrinter:
             return "".join(self._print_inline_markup(child) for child in node.children)
         if isinstance(node, DeclarationNode):
             return node.value
-        if isinstance(node, CsrfTokenNode):
-            return "{% csrf_token %}"
         if isinstance(node, TextNode):
             return node.value
         if isinstance(node, ExpressionNode):
@@ -234,7 +228,7 @@ class DjulePrinter:
         """Render one item inside an embedded Djule block."""
         prefix = "    " * indent
 
-        if isinstance(item, (FragmentNode, DeclarationNode, CsrfTokenNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+        if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
             return self._print_markup_block(item, indent)
 
         if isinstance(item, EmbeddedExprNode):
@@ -266,4 +260,4 @@ class DjulePrinter:
     @staticmethod
     def _is_inline_children(children: list[MarkupNode]) -> bool:
         """Return whether child markup can be rendered inline without losing structure."""
-        return all(isinstance(child, (DeclarationNode, CsrfTokenNode, TextNode, ExpressionNode)) for child in children)
+        return all(isinstance(child, (DeclarationNode, TextNode, ExpressionNode)) for child in children)

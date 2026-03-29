@@ -13,7 +13,6 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
-    CsrfTokenNode,
     DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
@@ -235,9 +234,6 @@ class DjuleAnalyzer:
         if isinstance(node, DeclarationNode):
             return current
 
-        if isinstance(node, CsrfTokenNode):
-            return current
-
         if isinstance(node, TextNode):
             return current
 
@@ -275,7 +271,7 @@ class DjuleAnalyzer:
         """Analyze embedded block items and propagate any names they bind."""
         current = set(scope)
         for item in items:
-            if isinstance(item, (FragmentNode, DeclarationNode, CsrfTokenNode, TextNode, ElementNode, ComponentNode, BlockNode, ExpressionNode)):
+            if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ElementNode, ComponentNode, BlockNode, ExpressionNode)):
                 current = self._analyze_markup_node(item, current)
             elif isinstance(item, EmbeddedExprNode):
                 self._check_expression_source(item.source, item.line, item.column, current)

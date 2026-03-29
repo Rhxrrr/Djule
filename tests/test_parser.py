@@ -8,7 +8,6 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
-    CsrfTokenNode,
     DeclarationNode,
     EmbeddedExprNode,
     EmbeddedForNode,
@@ -171,21 +170,6 @@ def Page():
         self.assertEqual(root.children[0].value, "<!doctype html>")
         self.assertIsInstance(root.children[1], ElementNode)
         self.assertEqual(root.children[1].tag, "html")
-
-    def test_csrf_token_tag_parses_as_markup_node(self):
-        source = """
-def Page():
-    return (
-        <form>
-            {% csrf_token %}
-        </form>
-    )
-"""
-        module = DjuleParser.from_source(source).parse()
-
-        root = module.components[0].return_stmt.value
-        self.assertIsInstance(root, ElementNode)
-        self.assertIsInstance(root.children[0], CsrfTokenNode)
 
     def test_self_closing_html_and_component_tags_parse(self):
         source = """

@@ -78,36 +78,6 @@ class RendererTests(unittest.TestCase):
         renderer = DjuleRenderer.from_source(source)
         self.assertEqual(renderer.render(), "<!doctype html><html><body>Hello</body></html>")
 
-    def test_csrf_token_tag_renders_hidden_input_from_token_prop(self):
-        source = """def Page():
-    return (
-        <form>
-            {% csrf_token %}
-        </form>
-    )
-"""
-
-        renderer = DjuleRenderer.from_source(source)
-        self.assertEqual(
-            renderer.render(props={"csrf_token": "csrf-123"}),
-            '<form><input type="hidden" name="csrfmiddlewaretoken" value="csrf-123"></form>',
-        )
-
-    def test_csrf_token_tag_raises_when_no_token_is_available(self):
-        source = """def Page():
-    return (
-        <form>
-            {% csrf_token %}
-        </form>
-    )
-"""
-
-        renderer = DjuleRenderer.from_source(source)
-        with self.assertRaises(RendererError) as context:
-            renderer.render()
-
-        self.assertIn("csrf_token", str(context.exception))
-
     def test_self_closing_html_and_component_tags_render(self):
         source = """def Button(variant, children):
     return (

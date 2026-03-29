@@ -96,10 +96,6 @@ class DjuleLexer:
                 self._lex_markup_declaration()
                 continue
 
-            if self._starts_csrf_token_tag():
-                self._lex_csrf_token_tag()
-                continue
-
             if self._starts_markup_fragment():
                 self._lex_markup_fragment()
                 continue
@@ -349,10 +345,6 @@ class DjuleLexer:
             return False
         return self.source[self.index : self.index + 9].lower() == "<!doctype"
 
-    def _starts_csrf_token_tag(self) -> bool:
-        """Return whether the current position begins a supported CSRF template tag."""
-        return self.source.startswith("{% csrf_token %}", self.index)
-
     def _lex_markup_fragment(self) -> None:
         """Lex a complete markup fragment, including nested child tags.
 
@@ -366,10 +358,6 @@ class DjuleLexer:
         while not self.is_at_end():
             if self._starts_markup_declaration():
                 self._lex_markup_declaration()
-                continue
-
-            if self._starts_csrf_token_tag():
-                self._lex_csrf_token_tag()
                 continue
 
             if self._starts_markup_fragment():
@@ -421,13 +409,6 @@ class DjuleLexer:
 
         self.advance()  # >
         self._push_token(TokenType.DECLARATION, self.source[start:self.index], line, column)
-
-    def _lex_csrf_token_tag(self) -> None:
-        """Lex a literal `{% csrf_token %}` tag as one markup token."""
-        line, column = self.line, self.column
-        value = "{% csrf_token %}"
-        self._push_token(TokenType.CSRF_TOKEN_TAG, value, line, column)
-        self._advance_text(value)
 
     def _lex_tag(self) -> tuple[str, bool, bool, bool]:
         """Lex one opening or closing tag and return its classification.

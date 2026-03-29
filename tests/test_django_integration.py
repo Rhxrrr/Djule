@@ -297,29 +297,3 @@ class DjangoIntegrationTests(unittest.TestCase):
         self.assertIn((ROOT.resolve(), "**/*.djule"), reloader.calls)
         results = autoreload.file_changed.send(sender=reloader, file_path=ROOT / "examples" / "simple_page_01.djule")
         self.assertTrue(any(result for _receiver, result in results))
-
-    @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
-    def test_render_djule_injects_csrf_token_from_request(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            template_path = Path(tmp_dir) / "login.djule"
-            template_path.write_text(
-                """def Page():
-    return (
-        <form>
-            {% csrf_token %}
-        </form>
-    )
-"""
-            )
-
-            with patch("django.middleware.csrf.get_token", return_value="csrf-123"):
-                html = render_djule(
-                    request=SimpleNamespace(META={}),
-                    template_name="login.djule",
-                    settings_obj=SimpleNamespace(DJULE_IMPORT_ROOTS=[tmp_dir]),
-                )
-
-        self.assertEqual(
-            html,
-            '<form><input type="hidden" name="csrfmiddlewaretoken" value="csrf-123"></form>',
-        )
