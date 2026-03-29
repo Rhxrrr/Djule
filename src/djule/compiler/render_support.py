@@ -13,6 +13,7 @@ from djule.parser.ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    CsrfTokenNode,
     DeclarationNode,
     ElementNode,
     EmbeddedAssignNode,
@@ -216,6 +217,9 @@ class DjuleRenderMixin:
         if isinstance(node, DeclarationNode):
             return SafeHtml(node.value)
 
+        if isinstance(node, CsrfTokenNode):
+            return self._render_csrf_token(env)
+
         if isinstance(node, TextNode):
             return SafeHtml(node.value)
 
@@ -325,6 +329,29 @@ class DjuleRenderMixin:
 
         return SafeHtml(escape(str(value)))
 
+    def _render_csrf_token(self, env: dict[str, object]) -> SafeHtml:
+        """Render Djule's Django-style CSRF token tag from the available environment."""
+        if "csrf_token_html" in env:
+            value = env["csrf_token_html"]
+            if value is None:
+                return SafeHtml("")
+            if isinstance(value, SafeHtml):
+                return value
+            return SafeHtml(str(value))
+
+        if "csrf_token" in env:
+            value = env["csrf_token"]
+            if value is None:
+                return SafeHtml("")
+            return SafeHtml(
+                f'<input type="hidden" name="csrfmiddlewaretoken" value="{escape(str(value), quote=True)}">'
+            )
+
+        raise RendererError(
+            "Encountered '{% csrf_token %}' without a csrf token in scope; "
+            "pass 'csrf_token'/'csrf_token_html' or render through djule.integrations.django with a request"
+        )
+
     def _execute_block_items(
         self,
         items: list[BlockItem],
@@ -342,7 +369,7 @@ class DjuleRenderMixin:
         fragments: list[str],
     ) -> None:
         """Execute one embedded block item and emit or bind values as needed."""
-        if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+        if isinstance(item, (FragmentNode, DeclarationNode, CsrfTokenNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
             fragments.append(str(self._render_markup_node(item, env)))
             return
 

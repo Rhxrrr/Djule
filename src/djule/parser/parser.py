@@ -12,6 +12,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    CsrfTokenNode,
     DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
@@ -321,6 +322,9 @@ class DjuleParser:
         """
         if self._check(TokenType.DECLARATION):
             return DeclarationNode(value=self._advance().value)
+        if self._check(TokenType.CSRF_TOKEN_TAG):
+            self._advance()
+            return CsrfTokenNode()
         if self._check(TokenType.HTML_TAG_OPEN):
             return self._parse_element_node()
         if self._check(TokenType.COMPONENT_TAG_OPEN):

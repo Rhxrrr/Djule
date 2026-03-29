@@ -51,6 +51,19 @@ class LexerTests(unittest.TestCase):
         declaration = next(token for token in tokens if token.type == TokenType.DECLARATION)
         self.assertEqual(declaration.value, "<!doctype html>")
 
+    def test_csrf_token_tag_tokenizes_as_dedicated_markup_token(self):
+        source = """def Page():
+    return (
+        <form>
+            {% csrf_token %}
+        </form>
+    )
+"""
+
+        tokens = DjuleLexer(source).tokenize()
+
+        self.assertEqual(sum(token.type == TokenType.CSRF_TOKEN_TAG for token in tokens), 1)
+
     def test_children_example_has_component_nodes_and_text(self):
         tokens = self.lex("03_children.djule")
         values = [token.value for token in tokens]

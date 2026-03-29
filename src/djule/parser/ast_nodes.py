@@ -76,6 +76,12 @@ class DeclarationNode:
 
 
 @dataclass(frozen=True)
+class CsrfTokenNode:
+    """A Django-style `{% csrf_token %}` markup tag."""
+    type: str = field(init=False, default="CsrfTokenNode")
+
+
+@dataclass(frozen=True)
 class FragmentNode:
     """A transparent container for adjacent markup nodes returned together."""
     children: list["MarkupNode"]
@@ -188,7 +194,7 @@ class BlockNode:
     type: str = field(init=False, default="BlockNode")
 
 
-MarkupNode = Union[FragmentNode, DeclarationNode, ElementNode, ComponentNode, TextNode, ExpressionNode, BlockNode]
+MarkupNode = Union[FragmentNode, DeclarationNode, CsrfTokenNode, ElementNode, ComponentNode, TextNode, ExpressionNode, BlockNode]
 AssignValue = Union[PythonExpr, MarkupNode]
 BlockItem = Union[MarkupNode, EmbeddedAssignNode, EmbeddedIfNode, EmbeddedForNode, EmbeddedExprNode]
 

@@ -42,6 +42,7 @@ class TokenType(str, Enum):
     COMPONENT_TAG_OPEN = "COMPONENT_TAG_OPEN"  # opening component tag name token (e.g. "Button")
     COMPONENT_TAG_CLOSE = "COMPONENT_TAG_CLOSE"  # closing component tag name token (e.g. "Button")
     DECLARATION = "DECLARATION"  # raw markup declaration such as <!doctype html>
+    CSRF_TOKEN_TAG = "CSRF_TOKEN_TAG"  # literal "{% csrf_token %}" markup tag
     TAG_END = "TAG_END"  # literal ">" that ends an opening/closing tag
     ATTR_NAME = "ATTR_NAME"  # attribute name inside a tag (e.g. class, id, custom props)
     TEXT = "TEXT"  # plain text content inside markup

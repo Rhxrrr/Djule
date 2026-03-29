@@ -87,7 +87,19 @@ def dashboard_view(request):
             "notifications": [],
             "team": {"name": "Core"},
         },
-    )
+)
 ```
 
 Set `DJULE_IMPORT_ROOTS` in Django settings if you want explicit import roots. Otherwise Djule falls back to `BASE_DIR`.
+
+When rendering through the Django integration, Djule also recognizes `{% csrf_token %}` inside markup and injects the request token automatically:
+
+```python
+def LoginForm():
+    return (
+        <form method="post">
+            {% csrf_token %}
+            <button type="submit">Sign in</button>
+        </form>
+    )
+```

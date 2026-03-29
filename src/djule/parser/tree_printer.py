@@ -6,6 +6,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    CsrfTokenNode,
     DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
@@ -167,7 +168,7 @@ class DjuleTreePrinter:
             self._render_named_children(lines, child_prefix, [("value", node.value)])
             return
 
-        if isinstance(node, (PythonExpr, DeclarationNode, TextNode, ExpressionNode, EmbeddedExprNode)):
+        if isinstance(node, (PythonExpr, DeclarationNode, CsrfTokenNode, TextNode, ExpressionNode, EmbeddedExprNode)):
             return
 
         raise TypeError(f"Unsupported AST node for tree printing: {type(node)!r}")
@@ -215,6 +216,8 @@ class DjuleTreePrinter:
             return f"PythonExpr: {node.source}"
         if isinstance(node, DeclarationNode):
             return f"DeclarationNode: {node.value!r}"
+        if isinstance(node, CsrfTokenNode):
+            return "CsrfTokenNode"
         if isinstance(node, TextNode):
             return f"TextNode: {node.value!r}"
         if isinstance(node, ExpressionNode):
