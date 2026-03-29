@@ -229,6 +229,26 @@ def Page(user):
         with self.assertRaises(ParserError):
             DjuleParser.from_source(source).parse()
 
+    def test_multiline_component_params_with_trailing_comma_parse(self):
+        source = """
+def LoginDocument(
+    doctype_html,
+    title,
+    description,
+    children,
+):
+    return (
+        <main>{title}</main>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        component = module.components[0]
+        self.assertEqual(
+            component.params,
+            ["doctype_html", "title", "description", "children"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

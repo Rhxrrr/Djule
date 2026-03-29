@@ -78,6 +78,25 @@ class RendererTests(unittest.TestCase):
         renderer = DjuleRenderer.from_source(source)
         self.assertEqual(renderer.render(), "<!doctype html><html><body>Hello</body></html>")
 
+    def test_multiline_component_params_render_normally(self):
+        source = """def Page(
+    title,
+    subtitle,
+):
+    return (
+        <main>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+        </main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"title": "Hello", "subtitle": "World"}),
+            "<main><h1>Hello</h1><p>World</p></main>",
+        )
+
     def test_self_closing_html_and_component_tags_render(self):
         source = """def Button(variant, children):
     return (
