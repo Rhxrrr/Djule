@@ -12,6 +12,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
     EmbeddedForNode,
@@ -20,6 +21,7 @@ from .ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    FragmentNode,
     IfStmt,
     ImportFrom,
     ImportModule,
@@ -281,23 +283,44 @@ class DjuleParser:
         return statements
 
     def _parse_return_stmt(self) -> ReturnStmt:
-        """Parse the required `return (...)` markup form for a component."""
+        """Parse the required `return (...)` markup form for a component.
+
+        Return bodies may contain multiple adjacent top-level markup nodes,
+        such as `<!doctype html>` followed by `<html>...</html>`. Adjacent
+        siblings are wrapped in a transparent fragment node.
+        """
         self._consume(TokenType.RETURN, "Expected 'return'")
         self._consume(TokenType.LPAREN, "Expected '(' after return")
-        self._skip_newlines()
-        value = self._parse_markup_node()
-        self._skip_newlines()
+        value = self._parse_markup_sequence_until({TokenType.RPAREN})
         self._consume(TokenType.RPAREN, "Expected ')' after returned markup")
         self._consume(TokenType.NEWLINE, "Expected newline after return")
         return ReturnStmt(value=value)
 
+    def _parse_markup_sequence_until(self, stop_types: set[TokenType]) -> MarkupNode:
+        """Parse one or more adjacent markup nodes until a stop token is reached."""
+        nodes: list[MarkupNode] = []
+        self._skip_newlines()
+
+        while not self._check_any(stop_types) and not self._check(TokenType.EOF):
+            nodes.append(self._parse_markup_node())
+            self._skip_newlines()
+
+        if not nodes:
+            raise self._error("Expected markup node")
+        if len(nodes) == 1:
+            return nodes[0]
+        return FragmentNode(children=nodes)
+
     def _parse_markup_node(self) -> MarkupNode:
         """Parse the next markup-level node.
 
-        Markup can be an HTML element, a component tag, raw text, or a braced
-        Djule expression/block. Legacy single-token `EXPR` nodes are still
-        supported as a compatibility path while the tokenized brace form exists.
+        Markup can be a declaration, an HTML element, a component tag, raw
+        text, or a braced Djule expression/block. Legacy single-token `EXPR`
+        nodes are still supported as a compatibility path while the tokenized
+        brace form exists.
         """
+        if self._check(TokenType.DECLARATION):
+            return DeclarationNode(value=self._advance().value)
         if self._check(TokenType.HTML_TAG_OPEN):
             return self._parse_element_node()
         if self._check(TokenType.COMPONENT_TAG_OPEN):
@@ -674,6 +697,7 @@ class DjuleParser:
         """Return whether the current token can begin a markup node."""
         return self._check_any(
             {
+                TokenType.DECLARATION,
                 TokenType.HTML_TAG_OPEN,
                 TokenType.COMPONENT_TAG_OPEN,
                 TokenType.TEXT,

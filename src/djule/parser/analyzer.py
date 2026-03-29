@@ -13,6 +13,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
     EmbeddedForNode,
@@ -21,6 +22,7 @@ from .ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    FragmentNode,
     ImportFrom,
     ImportModule,
     IfStmt,
@@ -224,6 +226,14 @@ class DjuleAnalyzer:
         """Walk one markup subtree and validate any embedded expressions it contains."""
         current = set(scope)
 
+        if isinstance(node, FragmentNode):
+            for child in node.children:
+                current = self._analyze_markup_node(child, current)
+            return current
+
+        if isinstance(node, DeclarationNode):
+            return current
+
         if isinstance(node, TextNode):
             return current
 
@@ -261,7 +271,7 @@ class DjuleAnalyzer:
         """Analyze embedded block items and propagate any names they bind."""
         current = set(scope)
         for item in items:
-            if isinstance(item, (TextNode, ElementNode, ComponentNode, BlockNode, ExpressionNode)):
+            if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ElementNode, ComponentNode, BlockNode, ExpressionNode)):
                 current = self._analyze_markup_node(item, current)
             elif isinstance(item, EmbeddedExprNode):
                 self._check_expression_source(item.source, item.line, item.column, current)

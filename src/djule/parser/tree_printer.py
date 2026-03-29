@@ -6,6 +6,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
     EmbeddedForNode,
@@ -14,6 +15,7 @@ from .ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    FragmentNode,
     IfStmt,
     ImportFrom,
     ImportModule,
@@ -121,6 +123,10 @@ class DjuleTreePrinter:
             self._render_named_children(lines, child_prefix, [("value", node.value)])
             return
 
+        if isinstance(node, FragmentNode):
+            self._render_named_children(lines, child_prefix, [("children", node.children)])
+            return
+
         if isinstance(node, (ElementNode, ComponentNode)):
             children = [("attributes", node.attributes), ("children", node.children)]
             self._render_named_children(lines, child_prefix, children)
@@ -161,7 +167,7 @@ class DjuleTreePrinter:
             self._render_named_children(lines, child_prefix, [("value", node.value)])
             return
 
-        if isinstance(node, (PythonExpr, TextNode, ExpressionNode, EmbeddedExprNode)):
+        if isinstance(node, (PythonExpr, DeclarationNode, TextNode, ExpressionNode, EmbeddedExprNode)):
             return
 
         raise TypeError(f"Unsupported AST node for tree printing: {type(node)!r}")
@@ -189,6 +195,8 @@ class DjuleTreePrinter:
             return f"ForStmt target={node.target}"
         if isinstance(node, ReturnStmt):
             return "ReturnStmt"
+        if isinstance(node, FragmentNode):
+            return "FragmentNode"
         if isinstance(node, ElementNode):
             return f"ElementNode <{node.tag}>"
         if isinstance(node, ComponentNode):
@@ -205,6 +213,8 @@ class DjuleTreePrinter:
             return f"AttributeNode {node.name}"
         if isinstance(node, PythonExpr):
             return f"PythonExpr: {node.source}"
+        if isinstance(node, DeclarationNode):
+            return f"DeclarationNode: {node.value!r}"
         if isinstance(node, TextNode):
             return f"TextNode: {node.value!r}"
         if isinstance(node, ExpressionNode):

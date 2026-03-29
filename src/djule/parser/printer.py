@@ -7,6 +7,7 @@ from .ast_nodes import (
     BlockNode,
     ComponentDef,
     ComponentNode,
+    DeclarationNode,
     EmbeddedAssignNode,
     EmbeddedExprNode,
     EmbeddedForNode,
@@ -15,6 +16,7 @@ from .ast_nodes import (
     ExprStmt,
     ExpressionNode,
     ForStmt,
+    FragmentNode,
     IfStmt,
     ImportFrom,
     ImportModule,
@@ -112,6 +114,15 @@ class DjulePrinter:
         """Render one markup node as one or more source lines."""
         prefix = "    " * indent
 
+        if isinstance(node, FragmentNode):
+            lines: list[str] = []
+            for child in node.children:
+                lines.extend(self._print_markup_block(child, indent))
+            return lines
+
+        if isinstance(node, DeclarationNode):
+            return [f"{prefix}{node.value}"]
+
         if isinstance(node, TextNode):
             return [f"{prefix}{node.value}"]
 
@@ -185,6 +196,10 @@ class DjulePrinter:
         Embedded blocks are rejected here because they require explicit
         indentation and brace lines in the output.
         """
+        if isinstance(node, FragmentNode):
+            return "".join(self._print_inline_markup(child) for child in node.children)
+        if isinstance(node, DeclarationNode):
+            return node.value
         if isinstance(node, TextNode):
             return node.value
         if isinstance(node, ExpressionNode):
@@ -205,7 +220,7 @@ class DjulePrinter:
         """Render one item inside an embedded Djule block."""
         prefix = "    " * indent
 
-        if isinstance(item, (TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
+        if isinstance(item, (FragmentNode, DeclarationNode, TextNode, ExpressionNode, ElementNode, ComponentNode, BlockNode)):
             return self._print_markup_block(item, indent)
 
         if isinstance(item, EmbeddedExprNode):
@@ -237,4 +252,4 @@ class DjulePrinter:
     @staticmethod
     def _is_inline_children(children: list[MarkupNode]) -> bool:
         """Return whether child markup can be rendered inline without losing structure."""
-        return all(isinstance(child, (TextNode, ExpressionNode)) for child in children)
+        return all(isinstance(child, (DeclarationNode, TextNode, ExpressionNode)) for child in children)
