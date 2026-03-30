@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 from djule.compiler.types import ImportedComponentRef, RendererError, SafeHtml
 from djule.parser.ast_nodes import ComponentDef, ImportFrom, ImportModule
@@ -39,6 +40,10 @@ class DjuleImportMixin:
             return
 
         for import_node in self.module.imports:
+            if import_node.module == "builtins":
+                self._load_builtin_import(import_node)
+                continue
+
             module_renderer = self._load_imported_module(import_node.module)
             if isinstance(import_node, ImportFrom):
                 for name in import_node.names:
@@ -56,6 +61,26 @@ class DjuleImportMixin:
             self.auto_module_registry[namespace] = module_renderer
 
         self.imports_loaded = True
+
+    def _builtin_import_candidates(self) -> dict[str, object]:
+        """Return the values exposed through Djule's virtual `builtins` module."""
+        candidates = dict(self.builtins)
+        candidates.update(self.importables)
+        return candidates
+
+    def _load_builtin_import(self, import_node: ImportFrom | ImportModule) -> None:
+        """Resolve one virtual `builtins` import into value bindings."""
+        candidates = self._builtin_import_candidates()
+
+        if isinstance(import_node, ImportFrom):
+            for name in import_node.names:
+                if name not in candidates:
+                    raise RendererError(f"Imported builtin '{name}' was not found in module 'builtins'")
+                self.auto_value_registry[name] = candidates[name]
+            return
+
+        namespace = self._module_import_namespace(import_node)
+        self.auto_value_registry[namespace] = SimpleNamespace(**candidates)
 
     @staticmethod
     def _module_import_namespace(import_node: ImportModule) -> str:
@@ -79,9 +104,15 @@ class DjuleImportMixin:
             module_path,
             component_registry=self.component_registry,
             builtins=self.builtins,
+            importables=self.importables,
             search_paths=self.search_paths,
             renderer_cache=self.renderer_cache,
         )
+
+    def _module_import_values(self) -> dict[str, object]:
+        """Return non-component values imported into the current Djule module."""
+        self._load_auto_imports()
+        return dict(self.auto_value_registry)
 
     def _resolve_module_path(self, module_name: str) -> Path:
         """Resolve an absolute or relative Djule import to an on-disk module path."""
@@ -146,7 +177,11 @@ class DjuleImportMixin:
             return self._render_component_def(component, props)
 
         if isinstance(component, ImportedComponentRef):
-            return component.renderer._render_component_by_name(component.component_name, props)
+            return component.renderer._render_with_ambient(
+                component.component_name,
+                props,
+                ambient_props=self._current_ambient_props(),
+            )
 
         result = component(**props)
         if isinstance(result, SafeHtml):

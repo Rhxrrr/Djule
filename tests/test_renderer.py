@@ -111,6 +111,19 @@ class RendererTests(unittest.TestCase):
             "<main>hello</main>",
         )
 
+    def test_interpolated_attribute_string_renders_dynamic_value(self):
+        source = """def Page(button_class):
+    return (
+        <button class="btn {button_class}"></button>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"button_class": "primary"}),
+            '<button class="btn primary"></button>',
+        )
+
     def test_self_closing_html_and_component_tags_render(self):
         source = """def Button(variant, children):
     return (
@@ -547,9 +560,86 @@ def Page():
             renderer.render(props={"user": SimpleNamespace(username="Rhxrr")})
 
         message = str(ctx.exception)
+        self.assertTrue(message.startswith("component 'Page', line 4, column 17:"))
         self.assertIn("Failed to evaluate expression 'user.missing_name'", message)
-        self.assertIn("component 'Page'", message)
-        self.assertIn("line 4, column 17", message)
+
+    def test_missing_props_include_file_and_component_context(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "missing_props.djule"
+            path.write_text(
+                """def Page(title, vite_asset_url):
+    return (
+        <main>{title}</main>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(path)
+            with self.assertRaises(RendererError) as ctx:
+                renderer.render(props={"title": "Hello"})
+
+        message = str(ctx.exception)
+        self.assertTrue(message.startswith(f"file '{path.resolve()}', component 'Page':"))
+        self.assertIn("Missing prop(s): vite_asset_url", message)
+
+    def test_ambient_globals_are_visible_inside_local_child_components(self):
+        source = """def LoginForm():
+    return (
+        <form>{csrf_token}</form>
+    )
+
+def Page():
+    return (
+        <main><LoginForm></LoginForm></main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(ambient_props={"csrf_token": "token-123"}),
+            "<main><form>token-123</form></main>",
+        )
+
+    def test_ambient_globals_are_visible_inside_imported_components(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (root / "page.djule").write_text(
+                """from components.form import LoginForm
+
+def Page():
+    return (
+        <main><LoginForm></LoginForm></main>
+    )
+"""
+            )
+            (components_dir / "form.djule").write_text(
+                """def LoginForm():
+    return (
+        <form>{csrf_token}</form>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            self.assertEqual(
+                renderer.render(ambient_props={"csrf_token": "token-123"}),
+                "<main><form>token-123</form></main>",
+            )
+
+    def test_virtual_builtins_module_exposes_importable_helpers(self):
+        source = """from builtins import static
+
+def Page():
+    return (
+        <main>{static("svg/wheelify.svg")}</main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source, importables={"static": lambda path: f"/static/{path}"})
+        self.assertEqual(renderer.render(), "<main>/static/svg/wheelify.svg</main>")
 
 
 if __name__ == "__main__":

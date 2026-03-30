@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from .lexer import LexerError
+from .parser import DjuleParser, ParserError
 from .ast_nodes import (
     AssignStmt,
     AttributeNode,
@@ -48,6 +50,7 @@ SAFE_BUILTIN_NAMES = {
     "sum",
     "tuple",
 }
+VIRTUAL_IMPORT_MODULES = {"builtins"}
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,7 @@ class DjuleAnalyzer:
         """Initialize analyzer state for one analysis pass."""
         self.diagnostics: list[SemanticDiagnostic] = []
         self.document_path: Path | None = None
+        self.imported_module_exports: dict[Path, set[str] | None] = {}
         self.search_paths: list[Path] = []
 
     def analyze(
@@ -107,7 +111,12 @@ class DjuleAnalyzer:
     def _analyze_imports(self, imports: list[ImportFrom | ImportModule]) -> None:
         """Report imports whose target modules cannot be resolved from search paths."""
         for import_node in imports:
-            if self._can_resolve_import(import_node.module):
+            resolved_path = self._resolve_import_path(import_node.module)
+            if import_node.module in VIRTUAL_IMPORT_MODULES:
+                continue
+            if resolved_path is not None:
+                if isinstance(import_node, ImportFrom):
+                    self._analyze_imported_names(import_node, resolved_path)
                 continue
 
             start_column = import_node.column + 5 if isinstance(import_node, ImportFrom) else import_node.column + 7
@@ -121,11 +130,55 @@ class DjuleAnalyzer:
                 )
             )
 
+    def _analyze_imported_names(self, import_node: ImportFrom, module_path: Path) -> None:
+        """Report imported component names that do not exist in the target module."""
+        exported_names = self._module_exported_names(module_path)
+        if exported_names is None:
+            return
+
+        current_column = import_node.column + len("from ") + len(import_node.module) + len(" import ")
+        for index, name in enumerate(import_node.names):
+            if name not in exported_names:
+                self.diagnostics.append(
+                    SemanticDiagnostic(
+                        message=f"Imported name '{name}' was not found in module '{import_node.module}'",
+                        line=import_node.line or 1,
+                        column=current_column,
+                        end_column=current_column + len(name),
+                        code="semantic.unresolved-import-name",
+                    )
+                )
+            current_column += len(name)
+            if index < len(import_node.names) - 1:
+                current_column += 2
+
     def _can_resolve_import(self, module_name: str) -> bool:
         """Return whether an import can be resolved as absolute or relative."""
+        return self._resolve_import_path(module_name) is not None or module_name in VIRTUAL_IMPORT_MODULES
+
+    def _resolve_import_path(self, module_name: str) -> Path | None:
+        """Return the resolved filesystem path for one Djule import when available."""
+        if module_name in VIRTUAL_IMPORT_MODULES:
+            return None
         if module_name.startswith("."):
-            return self._resolve_relative_import(module_name) is not None
-        return self._resolve_absolute_import(module_name) is not None
+            return self._resolve_relative_import(module_name)
+        return self._resolve_absolute_import(module_name)
+
+    def _module_exported_names(self, module_path: Path) -> set[str] | None:
+        """Return component names defined by one imported Djule module."""
+        resolved_path = module_path.resolve()
+        if resolved_path in self.imported_module_exports:
+            return self.imported_module_exports[resolved_path]
+
+        try:
+            module = DjuleParser.from_file(resolved_path).parse()
+        except (LexerError, OSError, ParserError):
+            self.imported_module_exports[resolved_path] = None
+            return None
+
+        exported_names = {component.name for component in module.components}
+        self.imported_module_exports[resolved_path] = exported_names
+        return exported_names
 
     def _resolve_absolute_import(self, module_name: str) -> Path | None:
         """Resolve an absolute Djule module import to a file path if it exists."""

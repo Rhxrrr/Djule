@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -191,6 +192,36 @@ def Page():
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import")
         self.assertIn("exmaples.components.ui", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_missing_name_in_existing_imported_module(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "BrandLogo.djule").write_text(
+                """def BrandLogo(href):
+    return (
+        <a href={href}></a>
+    )
+"""
+            )
+            page_path = root / "page.djule"
+            page_path.write_text(
+                """from .BrandLogo import WheelifyLogo
+
+def Page():
+    return (
+        <WheelifyLogo href="/"></WheelifyLogo>
+    )
+"""
+            )
+
+            result = self.run_cli("check-json", str(page_path))
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import-name")
+        self.assertIn("WheelifyLogo", payload["diagnostics"][0]["message"])
+        self.assertIn(".BrandLogo", payload["diagnostics"][0]["message"])
 
     def test_check_json_reports_real_file_path_for_file_backed_parser_errors(self):
         invalid_path = ROOT / "tests" / "fixtures" / "tmp_invalid_for_cli.djule"
