@@ -8,6 +8,7 @@ __pycache__/
 .eggs/
 build/
 dist/
+*.vsix
 pip-wheel-metadata/
 
 .coverage

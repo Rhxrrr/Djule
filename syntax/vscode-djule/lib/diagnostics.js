@@ -1,15 +1,23 @@
-const cp = require("child_process");
 const vscode = require("vscode");
 
 const { DIAGNOSTIC_DEBOUNCE_MS, DIAGNOSTIC_SOURCE } = require("./constants");
+const { createDiagnosticsServerPool } = require("./diagnostics_server");
+const {
+  configuredGlobalNames,
+  mergeGlobalSymbols,
+  parseConfiguredGlobals,
+  parseGlobalSchema,
+} = require("./globals");
 const { resolvePythonCommand, resolveRuntimeRoot } = require("./runtime");
 
 function registerDiagnostics(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   const pendingTimers = new Map();
   const validationVersions = new Map();
+  const serverPool = createDiagnosticsServerPool();
 
   context.subscriptions.push(diagnostics);
+  context.subscriptions.push(serverPool);
 
   function clearPending(uriKey) {
     const timer = pendingTimers.get(uriKey);
@@ -33,11 +41,13 @@ function registerDiagnostics(context) {
     }
 
     const configuration = vscode.workspace.getConfiguration("djule", document);
-    let pythonCommand;
-    let runtimeRoot;
+    let payload;
     try {
-      pythonCommand = await resolvePythonCommand(document, configuration);
-      runtimeRoot = resolveRuntimeRoot(document, context, configuration);
+      const pythonCommand = await resolvePythonCommand(document, configuration);
+      const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
+      const server = serverPool.getServer(pythonCommand, runtimeRoot);
+      const globalNames = await resolveGlobalNames(document, server, configuration);
+      payload = await server.checkDocument(document, globalNames);
     } catch (error) {
       if (document.isClosed || document.version !== expectedVersion) {
         return;
@@ -46,77 +56,29 @@ function registerDiagnostics(context) {
       diagnostics.set(document.uri, [
         new vscode.Diagnostic(
           fallbackRange(document),
-          `Djule extension failed to prepare live syntax checking: ${error.message}`,
+          `Djule syntax server failed: ${error.message}`,
           vscode.DiagnosticSeverity.Error
         ),
       ]);
       return;
     }
 
-    const child = cp.spawn(
-      pythonCommand,
-      ["-m", "djule.parser", "check-json", "-", "--document-path", document.uri.fsPath],
-      {
-        cwd: runtimeRoot.cwd,
-        env: {
-          ...process.env,
-          ...runtimeRoot.env,
-          PYTHONDONTWRITEBYTECODE: "1",
-        },
-      }
-    );
+    if (document.isClosed || document.version !== expectedVersion) {
+      return;
+    }
 
-    let stdout = "";
-    let stderr = "";
+    if (payload && Array.isArray(payload.diagnostics)) {
+      diagnostics.set(document.uri, payload.diagnostics.map((item) => toDiagnostic(document, item)));
+      return;
+    }
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.on("error", (error) => {
-      if (document.isClosed || document.version !== expectedVersion) {
-        return;
-      }
-
-      diagnostics.set(document.uri, [
-        new vscode.Diagnostic(
-          fallbackRange(document),
-          `Djule syntax check failed to start: ${error.message}`,
-          vscode.DiagnosticSeverity.Error
-        ),
-      ]);
-    });
-
-    child.on("close", (code) => {
-      if (document.isClosed || document.version !== expectedVersion) {
-        return;
-      }
-
-      const payload = safeParseJson(stdout);
-      if (payload && Array.isArray(payload.diagnostics)) {
-        diagnostics.set(document.uri, payload.diagnostics.map((item) => toDiagnostic(document, item)));
-        return;
-      }
-
-      if (code === 0) {
-        diagnostics.delete(document.uri);
-        return;
-      }
-
-      diagnostics.set(document.uri, [
-        new vscode.Diagnostic(
-          fallbackRange(document),
-          stderr.trim() || stdout.trim() || "Djule syntax check failed",
-          vscode.DiagnosticSeverity.Error
-        ),
-      ]);
-    });
-
-    child.stdin.end(document.getText());
+    diagnostics.set(document.uri, [
+      new vscode.Diagnostic(
+        fallbackRange(document),
+        "Djule syntax server returned an invalid response",
+        vscode.DiagnosticSeverity.Error
+      ),
+    ]);
   }
 
   function scheduleValidation(document, delay = DIAGNOSTIC_DEBOUNCE_MS) {
@@ -153,14 +115,6 @@ function registerDiagnostics(context) {
 
   for (const document of vscode.workspace.textDocuments) {
     scheduleValidation(document, 0);
-  }
-}
-
-function safeParseJson(value) {
-  try {
-    return JSON.parse(value);
-  } catch (_error) {
-    return null;
   }
 }
 
@@ -210,6 +164,39 @@ function diagnosticRange(document, lineNumber, columnNumber, endColumnNumber) {
 
 function fallbackRange(document) {
   return diagnosticRange(document, 1, 1);
+}
+
+async function resolveGlobalNames(document, server, configuration) {
+  const configuredGlobals = parseConfiguredGlobals(configuration);
+
+  try {
+    const discoveredGlobals = await discoverDjangoGlobals(document, server, configuration);
+    return configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discoveredGlobals));
+  } catch (_error) {
+    return configuredGlobalNames(configuredGlobals);
+  }
+}
+
+async function discoverDjangoGlobals(document, server, configuration) {
+  if (document.uri.scheme !== "file") {
+    return new Map();
+  }
+
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+  const payload = await server.discoverDjangoGlobals(document, {
+    settingsModule: normalizeConfiguredString(configuration.get("djangoSettingsModule", "")),
+    workspacePath: workspaceFolder ? workspaceFolder.uri.fsPath : "",
+  });
+
+  if (!payload || !payload.ok || typeof payload.globals !== "object" || payload.globals === null) {
+    return new Map();
+  }
+
+  return parseGlobalSchema(payload.globals);
+}
+
+function normalizeConfiguredString(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 module.exports = {

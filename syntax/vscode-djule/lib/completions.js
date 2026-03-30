@@ -1,7 +1,19 @@
 const vscode = require("vscode");
 
 const { HTML_TAGS } = require("./constants");
-const { listDjuleModules, resolveImportedModulePath, resolveRuntimeRoot } = require("./runtime");
+const { createDiagnosticsServerPool } = require("./diagnostics_server");
+const {
+  mergeGlobalSymbols,
+  parseConfiguredGlobals,
+  parseGlobalSchema,
+  resolveConfiguredGlobalMembers,
+} = require("./globals");
+const {
+  listDjuleModules,
+  resolveImportedModulePath,
+  resolvePythonCommand,
+  resolveRuntimeRoot,
+} = require("./runtime");
 const {
   collectCodeNames,
   collectDocumentSymbols,
@@ -9,11 +21,12 @@ const {
   lookupComponentSignature,
 } = require("./symbols");
 
-function provideDjuleCompletions(document, position, context, configuration) {
+async function provideDjuleCompletions(document, position, context, configuration) {
   try {
     const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
     const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
     const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
+    const globalSymbols = await resolveGlobalSymbols(document, context, configuration, runtimeRoot);
     const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd);
 
     if (importItems !== null) {
@@ -29,10 +42,10 @@ function provideDjuleCompletions(document, position, context, configuration) {
     }
 
     if (isMemberAccessContext(linePrefix)) {
-      return buildMemberAccessCompletions(linePrefix, position, symbols);
+      return buildMemberAccessCompletions(linePrefix, position, symbols, globalSymbols);
     }
 
-    const codeItems = buildCodeCompletions(document, position, symbols);
+    const codeItems = buildCodeCompletions(document, position, symbols, globalSymbols);
     if (codeItems !== null) {
       return codeItems;
     }
@@ -41,6 +54,42 @@ function provideDjuleCompletions(document, position, context, configuration) {
   }
 
   return buildKeywordAndSnippetCompletions(document, position);
+}
+
+async function resolveGlobalSymbols(document, context, configuration, runtimeRoot) {
+  const configuredGlobals = parseConfiguredGlobals(configuration);
+
+  try {
+    const discoveredGlobals = await discoverDjangoGlobals(document, context, configuration, runtimeRoot);
+    return mergeGlobalSymbols(configuredGlobals, discoveredGlobals);
+  } catch (_error) {
+    return configuredGlobals;
+  }
+}
+
+async function discoverDjangoGlobals(document, context, configuration, runtimeRoot) {
+  if (document.uri.scheme !== "file") {
+    return new Map();
+  }
+
+  const pythonCommand = await resolvePythonCommand(document, configuration);
+  const serverPool = createDiagnosticsServerPool();
+  const server = serverPool.getServer(pythonCommand, runtimeRoot);
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+  const payload = await server.discoverDjangoGlobals(document, {
+    settingsModule: normalizeConfiguredString(configuration.get("djangoSettingsModule", "")),
+    workspacePath: workspaceFolder ? workspaceFolder.uri.fsPath : "",
+  });
+
+  if (!payload || !payload.ok || typeof payload.globals !== "object" || payload.globals === null) {
+    return new Map();
+  }
+
+  return parseGlobalSchema(payload.globals);
+}
+
+function normalizeConfiguredString(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function isTagContext(linePrefix) {
@@ -52,7 +101,7 @@ function isComponentAttributeContext(linePrefix) {
 }
 
 function isMemberAccessContext(linePrefix) {
-  return /\b[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_0-9]*$/.test(linePrefix);
+  return /\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\.[A-Za-z_0-9]*$/.test(linePrefix);
 }
 
 function buildImportCompletions(linePrefix, document, position, runtimeRoot) {
@@ -172,7 +221,7 @@ function buildTagCompletions(linePrefix, position, symbols) {
   return items;
 }
 
-function buildCodeCompletions(document, position, symbols) {
+function buildCodeCompletions(document, position, symbols, globalSymbols) {
   const wordRange = currentWordRange(document, position);
   if (!wordRange) {
     return null;
@@ -184,8 +233,25 @@ function buildCodeCompletions(document, position, symbols) {
   }
 
   const availableNames = collectCodeNames(document, position, symbols);
-  const items = Array.from(availableNames)
+  const items = Array.from(globalSymbols.entries())
+    .filter(([name]) => name.startsWith(currentPrefix) && name !== currentPrefix)
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+    .map(([name, globalInfo]) => {
+      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Constant);
+      item.insertText = name;
+      item.range = wordRange;
+      item.filterText = name;
+      item.detail = globalInfo.detail || "Djule configured global";
+      if (globalInfo.detail) {
+        item.documentation = globalInfo.detail;
+      }
+      item.sortText = `0-${name}`;
+      return item;
+    });
+
+  items.push(...Array.from(availableNames)
     .filter((name) => name.startsWith(currentPrefix) && name !== currentPrefix)
+    .filter((name) => !globalSymbols.has(name))
     .sort()
     .map((name) => {
       const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Variable);
@@ -193,14 +259,15 @@ function buildCodeCompletions(document, position, symbols) {
       item.range = wordRange;
       item.filterText = name;
       item.detail = "Djule local name";
+      item.sortText = `1-${name}`;
       return item;
-    });
+    }));
 
   return items.length ? items : null;
 }
 
-function buildMemberAccessCompletions(linePrefix, position, symbols) {
-  const match = linePrefix.match(/\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/);
+function buildMemberAccessCompletions(linePrefix, position, symbols, globalSymbols) {
+  const match = linePrefix.match(/\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.([A-Za-z0-9_]*)$/);
   if (!match) {
     return [];
   }
@@ -210,7 +277,22 @@ function buildMemberAccessCompletions(linePrefix, position, symbols) {
   const range = replaceTailRange(position, partial.length);
   const moduleComponents = symbols.namespacedModules.get(namespace);
   if (!moduleComponents) {
-    return [];
+    const globalMembers = resolveConfiguredGlobalMembers(globalSymbols, namespace.split("."));
+    if (!globalMembers) {
+      return [];
+    }
+
+    return Array.from(globalMembers.entries())
+      .filter(([name]) => !partial || name.startsWith(partial))
+      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+      .map(([name, memberInfo]) => {
+        const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Property);
+        item.insertText = name;
+        item.detail = memberInfo.detail || `Member on ${namespace}`;
+        item.range = range;
+        item.filterText = name;
+        return item;
+      });
   }
 
   return Array.from(moduleComponents.keys())

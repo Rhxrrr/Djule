@@ -67,6 +67,16 @@
           "type": "string",
           "default": "",
           "description": "Optional absolute path to the Djule project root. Use this if automatic root detection does not find the local src/djule package."
+        },
+        "djule.djangoSettingsModule": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Django settings module override for auto-discovering context-processor globals and globally registered simple tags inside Djule files."
+        },
+        "djule.globals": {
+          "type": "object",
+          "default": {},
+          "description": "Optional Djule global symbol schema used to extend or override auto-discovered Django globals for diagnostics and autocomplete. Example: { \"VITE_DEV_HOST\": \"Vite host from a Django context processor\", \"request\": { \"detail\": \"Django request\", \"members\": { \"path\": \"Request path\", \"user\": { \"members\": { \"username\": \"Username\", \"is_authenticated\": \"Auth flag\" } } } } }"
         }
       }
     }
