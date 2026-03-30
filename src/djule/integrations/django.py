@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import inspect
+import os
+import re
+import sys
+from functools import wraps
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
@@ -117,6 +122,366 @@ def build_djule_context(
             raise TypeError(f"Djule context processor '{processor_name}' must return a mapping or None")
         context.update(values)
     return context
+
+
+def _django_template_options(settings_obj=None) -> list[dict[str, object]]:
+    """Return Django template OPTIONS blocks from configured template backends."""
+    settings = _get_settings(settings_obj)
+    options_list: list[dict[str, object]] = []
+
+    for template in getattr(settings, "TEMPLATES", []) or []:
+        if not isinstance(template, dict):
+            continue
+        if template.get("BACKEND") != "django.template.backends.django.DjangoTemplates":
+            continue
+        options = template.get("OPTIONS")
+        if isinstance(options, dict):
+            options_list.append(options)
+
+    return options_list
+
+
+def _find_manage_py(start_path: Path | None) -> Path | None:
+    """Walk upward from `start_path` until a Django `manage.py` is found."""
+    if start_path is None:
+        return None
+
+    current = start_path.resolve()
+    if current.is_file():
+        current = current.parent
+
+    while True:
+        candidate = current / "manage.py"
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def _settings_module_from_manage_py(manage_py_path: Path) -> str | None:
+    """Extract `DJANGO_SETTINGS_MODULE` from a standard Django `manage.py` file."""
+    try:
+        source = manage_py_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    match = re.search(r"DJANGO_SETTINGS_MODULE[\"']?\s*,\s*[\"']([^\"']+)[\"']", source)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _ensure_django_settings(
+    *,
+    settings_obj=None,
+    settings_module: str | None = None,
+    document_path: str | Path | None = None,
+    workspace_path: str | Path | None = None,
+):
+    """Return configured Django settings, auto-bootstrapping when possible."""
+    if settings_obj is not None:
+        return settings_obj
+
+    try:
+        from django.conf import settings
+        import django
+    except ModuleNotFoundError:
+        return None
+
+    if settings.configured:
+        return settings
+
+    candidate_paths: list[Path] = []
+    if document_path:
+        candidate_paths.append(Path(document_path))
+    if workspace_path:
+        candidate_paths.append(Path(workspace_path))
+    candidate_paths.append(Path.cwd())
+
+    resolved_settings_module = settings_module or os.environ.get("DJANGO_SETTINGS_MODULE")
+    project_root: Path | None = None
+
+    if not resolved_settings_module:
+        for candidate in candidate_paths:
+            manage_py_path = _find_manage_py(candidate)
+            if manage_py_path is None:
+                continue
+            project_root = manage_py_path.parent
+            resolved_settings_module = _settings_module_from_manage_py(manage_py_path)
+            if resolved_settings_module:
+                break
+
+    if project_root is not None:
+        project_root_str = str(project_root.resolve())
+        if project_root_str not in sys.path:
+            sys.path.insert(0, project_root_str)
+
+    if not resolved_settings_module:
+        return None
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", resolved_settings_module)
+
+    try:
+        django.setup()
+    except Exception:
+        return None
+
+    return settings
+
+
+def _iter_django_builtin_libraries(
+    *,
+    settings_obj=None,
+    settings_module: str | None = None,
+    document_path: str | Path | None = None,
+    workspace_path: str | Path | None = None,
+):
+    """Yield Django template builtin libraries that should be globally available."""
+    settings = _ensure_django_settings(
+        settings_obj=settings_obj,
+        settings_module=settings_module,
+        document_path=document_path,
+        workspace_path=workspace_path,
+    )
+
+    if settings is not None and settings_obj is None:
+        try:
+            from django.template import engines
+        except ModuleNotFoundError:
+            return
+
+        seen_libraries: set[int] = set()
+        for backend in engines.all():
+            engine = getattr(backend, "engine", None)
+            template_builtins = getattr(engine, "template_builtins", None)
+            if not template_builtins:
+                continue
+            for library in template_builtins:
+                library_id = id(library)
+                if library_id in seen_libraries:
+                    continue
+                seen_libraries.add(library_id)
+                yield library
+        return
+
+    seen_modules: set[str] = set()
+    for options in _django_template_options(settings_obj):
+        for module_name in options.get("builtins", []) or []:
+            if not isinstance(module_name, str) or module_name in seen_modules:
+                continue
+            seen_modules.add(module_name)
+            try:
+                module = import_module(module_name)
+            except Exception:
+                continue
+            library = getattr(module, "register", None)
+            if library is not None:
+                yield library
+
+
+def _tag_runtime_wrapper(
+    name: str,
+    compile_func,
+    *,
+    request=None,
+    base_context: Mapping[str, object] | None = None,
+):
+    """Adapt a Django `simple_tag`-style callable into a Djule builtin."""
+    original = inspect.unwrap(compile_func)
+    if not callable(original):
+        return None
+
+    nonlocals = inspect.getclosurevars(compile_func).nonlocals
+    takes_context = bool(nonlocals.get("takes_context", False))
+    if not takes_context:
+        return original
+
+    captured_context = dict(base_context or {})
+    if request is not None and "request" not in captured_context:
+        captured_context["request"] = request
+
+    @wraps(original)
+    def _wrapped(*args, **kwargs):
+        return original(captured_context, *args, **kwargs)
+
+    _wrapped.__name__ = name
+    return _wrapped
+
+
+def get_djule_template_tag_builtins(
+    *,
+    request=None,
+    base_context: Mapping[str, object] | None = None,
+    settings_obj=None,
+    settings_module: str | None = None,
+    document_path: str | Path | None = None,
+    workspace_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Return Django builtin template tags adapted for Djule expression calls."""
+    builtins: dict[str, object] = {}
+
+    for library in _iter_django_builtin_libraries(
+        settings_obj=settings_obj,
+        settings_module=settings_module,
+        document_path=document_path,
+        workspace_path=workspace_path,
+    ):
+        tags = getattr(library, "tags", {})
+        if not isinstance(tags, Mapping):
+            continue
+        for name, compile_func in tags.items():
+            if not isinstance(name, str) or not callable(compile_func) or not hasattr(compile_func, "__wrapped__"):
+                continue
+            wrapped = _tag_runtime_wrapper(
+                name,
+                compile_func,
+                request=request,
+                base_context=base_context,
+            )
+            if wrapped is not None:
+                builtins[name] = wrapped
+
+    return builtins
+
+
+def _editor_request_stub() -> SimpleNamespace:
+    """Build a forgiving request-like object for editor-side context discovery."""
+    return SimpleNamespace(
+        COOKIES={},
+        FILES={},
+        GET={},
+        META={},
+        POST={},
+        headers={},
+        method="GET",
+        path="/",
+        path_info="/",
+        session={},
+        user=SimpleNamespace(
+            email="",
+            first_name="",
+            id=None,
+            is_authenticated=False,
+            is_staff=False,
+            is_superuser=False,
+            last_name="",
+            username="",
+        ),
+    )
+
+
+def _schema_detail_for_value(value: object) -> str:
+    """Return a compact human-readable description for one discovered value."""
+    if callable(value):
+        try:
+            signature = str(inspect.signature(value))
+        except (TypeError, ValueError):
+            signature = "()"
+        name = getattr(value, "__name__", value.__class__.__name__)
+        return f"{name}{signature}"
+    return value.__class__.__name__
+
+
+def _schema_from_value(value: object, *, depth: int = 2, detail: str | None = None) -> dict[str, object]:
+    """Convert one Python value into the nested schema used by editor globals."""
+    node: dict[str, object] = {"detail": detail or _schema_detail_for_value(value)}
+
+    if depth <= 0:
+        return node
+
+    members: dict[str, object] = {}
+    if isinstance(value, Mapping):
+        for key, inner in value.items():
+            if isinstance(key, str) and key.isidentifier():
+                members[key] = _schema_from_value(inner, depth=depth - 1)
+    elif isinstance(value, SimpleNamespace):
+        for key, inner in vars(value).items():
+            if key.isidentifier() and not key.startswith("_"):
+                members[key] = _schema_from_value(inner, depth=depth - 1)
+    elif hasattr(value, "__dict__") and not callable(value):
+        for key, inner in vars(value).items():
+            if key.isidentifier() and not key.startswith("_"):
+                members[key] = _schema_from_value(inner, depth=depth - 1)
+
+    if members:
+        node["members"] = members
+    return node
+
+
+def _merge_editor_schema(target: dict[str, object], incoming: Mapping[str, object]) -> dict[str, object]:
+    """Merge one discovered schema map into another."""
+    for name, value in incoming.items():
+        if name not in target or not isinstance(target[name], dict):
+            target[name] = value
+            continue
+
+        current = target[name]
+        if not current.get("detail") and isinstance(value, dict) and value.get("detail"):
+            current["detail"] = value["detail"]
+
+        current_members = current.get("members")
+        incoming_members = value.get("members") if isinstance(value, dict) else None
+        if isinstance(current_members, dict) and isinstance(incoming_members, dict):
+            _merge_editor_schema(current_members, incoming_members)
+        elif incoming_members:
+            current["members"] = incoming_members
+
+    return target
+
+
+def discover_djule_editor_globals(
+    *,
+    settings_obj=None,
+    settings_module: str | None = None,
+    document_path: str | Path | None = None,
+    workspace_path: str | Path | None = None,
+) -> dict[str, object]:
+    """Discover Django-backed globals and simple tags for Djule editor tooling."""
+    schema: dict[str, object] = {}
+    request = _editor_request_stub()
+    resolved_settings = _ensure_django_settings(
+        settings_obj=settings_obj,
+        settings_module=settings_module,
+        document_path=document_path,
+        workspace_path=workspace_path,
+    )
+
+    try:
+        processors = get_djule_context_processors(settings_obj=resolved_settings or settings_obj)
+    except Exception:
+        processors = []
+
+    context_values: dict[str, object] = {}
+    for processor in processors:
+        try:
+            values = processor(request)
+        except Exception:
+            continue
+        if isinstance(values, Mapping):
+            context_values.update(values)
+
+    for name, value in context_values.items():
+        if isinstance(name, str) and name.isidentifier():
+            schema[name] = _schema_from_value(value)
+
+    tag_builtins = get_djule_template_tag_builtins(
+        request=request,
+        base_context=context_values,
+        settings_obj=resolved_settings or settings_obj,
+        settings_module=settings_module,
+        document_path=document_path,
+        workspace_path=workspace_path,
+    )
+    tag_schema = {
+        name: {
+            "detail": f"Django template tag {_schema_detail_for_value(value)}",
+        }
+        for name, value in tag_builtins.items()
+        if isinstance(name, str) and name.isidentifier()
+    }
+
+    return _merge_editor_schema(schema, tag_schema)
 
 
 def get_djule_search_paths(
@@ -342,10 +707,20 @@ def render_djule(
     if include_request_prop and request is not None and "request" not in render_props:
         render_props["request"] = request
 
+    resolved_builtins = get_djule_template_tag_builtins(
+        request=request,
+        base_context=render_props,
+        settings_obj=settings_obj,
+        document_path=template_path,
+        workspace_path=template_path.parent,
+    )
+    if builtins:
+        resolved_builtins.update(builtins)
+
     renderer = DjuleRenderer.from_file(
         template_path,
         component_registry=component_registry,
-        builtins=builtins,
+        builtins=resolved_builtins,
         search_paths=resolved_search_paths,
     )
     return renderer.render(component_name=component_name, props=render_props)

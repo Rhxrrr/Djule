@@ -10,7 +10,7 @@ function activate(context) {
     vscode.languages.registerCompletionItemProvider(
       { language: "djule" },
       {
-        provideCompletionItems(document, position) {
+        async provideCompletionItems(document, position) {
           const configuration = vscode.workspace.getConfiguration("djule", document);
           return provideDjuleCompletions(document, position, context, configuration);
         },

@@ -97,6 +97,20 @@ class RendererTests(unittest.TestCase):
             "<main><h1>Hello</h1><p>World</p></main>",
         )
 
+    def test_local_assignment_shadows_same_named_render_prop(self):
+        source = """def Page():
+    request = "hello"
+    return (
+        <main>{request}</main>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"request": "from-props"}),
+            "<main>hello</main>",
+        )
+
     def test_self_closing_html_and_component_tags_render(self):
         source = """def Button(variant, children):
     return (

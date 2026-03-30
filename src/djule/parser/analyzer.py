@@ -76,6 +76,7 @@ class DjuleAnalyzer:
         *,
         document_path: str | Path | None = None,
         search_paths: list[str | Path] | None = None,
+        global_names: list[str] | None = None,
     ) -> list[SemanticDiagnostic]:
         """Run semantic checks for imports, names, and component references.
 
@@ -98,7 +99,7 @@ class DjuleAnalyzer:
                 namespace = import_node.alias or import_node.module
                 import_names.add(namespace.split(".")[0])
 
-        base_scope = SAFE_BUILTIN_NAMES | module_names | import_names
+        base_scope = SAFE_BUILTIN_NAMES | module_names | import_names | set(global_names or [])
         for component in module.components:
             self._analyze_component(component, base_scope)
         return self.diagnostics

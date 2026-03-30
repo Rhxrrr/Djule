@@ -25,6 +25,19 @@ class ParserCliTests(unittest.TestCase):
             check=False,
         )
 
+    def start_cli_server(self) -> subprocess.Popen[str]:
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        return subprocess.Popen(
+            [sys.executable, "-m", "djule.parser", "serve-json"],
+            cwd=ROOT,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+
     def test_check_json_succeeds_for_valid_file(self):
         result = self.run_cli("check-json", str(example_path("01_simple_page.djule")))
 
@@ -70,6 +83,25 @@ class ParserCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.undefined-name")
         self.assertIn("someone", payload["diagnostics"][0]["message"])
+
+    def test_check_json_accepts_configured_global_names(self):
+        source = """def Page():
+    return (
+        <main>{VITE_DEV_HOST}::{request.user.username}</main>
+    )
+"""
+        result = self.run_cli(
+            "check-json",
+            "-",
+            "--global-name",
+            "VITE_DEV_HOST",
+            "--global-name",
+            "request",
+            stdin=source,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {"ok": True, "diagnostics": []})
 
     def test_check_json_reports_unclosed_opening_tag_instead_of_attribute_error(self):
         invalid_source = """from examples.components.ui import Button, Card
@@ -234,6 +266,69 @@ def Page(user):
         self.assertEqual(payload["diagnostics"][0]["column"], 25)
         self.assertEqual(payload["diagnostics"][0]["endColumn"], 46)
         self.assertIn("Expected 'in' after loop variable in embedded for loop", payload["diagnostics"][0]["message"])
+
+    def test_serve_json_reuses_one_process_for_multiple_diagnostic_requests(self):
+        server = self.start_cli_server()
+        def cleanup_server() -> None:
+            if server.poll() is None:
+                server.kill()
+                server.wait(timeout=5)
+            for stream in (server.stdin, server.stdout, server.stderr):
+                if stream is not None and not stream.closed:
+                    stream.close()
+
+        self.addCleanup(cleanup_server)
+
+        assert server.stdin is not None
+        assert server.stdout is not None
+
+        valid_source = example_path("01_simple_page.djule").read_text()
+        invalid_source = """def Page():
+    return (
+        <main>
+            <h1>Mismatch</h2>
+        </main>
+    )
+"""
+
+        server.stdin.write(
+            json.dumps(
+                {
+                    "command": "check",
+                    "documentPath": str(example_path("01_simple_page.djule")),
+                    "id": 1,
+                    "source": valid_source,
+                }
+            )
+            + "\n"
+        )
+        server.stdin.flush()
+        first_payload = json.loads(server.stdout.readline())
+        self.assertEqual(first_payload["id"], 1)
+        self.assertTrue(first_payload["ok"])
+        self.assertEqual(first_payload["diagnostics"], [])
+
+        server.stdin.write(
+            json.dumps(
+                {
+                    "command": "check",
+                    "id": 2,
+                    "source": invalid_source,
+                }
+            )
+            + "\n"
+        )
+        server.stdin.flush()
+        second_payload = json.loads(server.stdout.readline())
+        self.assertEqual(second_payload["id"], 2)
+        self.assertFalse(second_payload["ok"])
+        self.assertIn(second_payload["diagnostics"][0]["code"], {"lexer", "parser"})
+
+        server.stdin.write(json.dumps({"command": "shutdown", "id": 3}) + "\n")
+        server.stdin.flush()
+        shutdown_payload = json.loads(server.stdout.readline())
+        self.assertEqual(shutdown_payload, {"diagnostics": [], "id": 3, "ok": True, "shutdown": True})
+        self.assertEqual(server.wait(timeout=5), 0)
 
 
 if __name__ == "__main__":

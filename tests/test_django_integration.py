@@ -10,9 +10,11 @@ from unittest.mock import patch
 import djule.integrations.django as django_integration
 from djule.integrations.django import (
     build_djule_context,
+    discover_djule_editor_globals,
     ensure_djule_autoreload,
     get_djule_context_processors,
     get_djule_search_paths,
+    get_djule_template_tag_builtins,
     get_djule_watch_directories,
     handle_djule_file_change,
     render_djule,
@@ -248,6 +250,112 @@ class DjangoIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(html, "<main>from-props</main>")
+
+    def test_render_djule_local_assignment_shadows_injected_global(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            template_path = Path(tmp_dir) / "shadow.djule"
+            template_path.write_text(
+                """def Page():
+    request = "hello"
+    return (
+        <main>{request}</main>
+    )
+"""
+            )
+
+            html = render_djule(
+                request=SimpleNamespace(path="/login/"),
+                template_name="shadow.djule",
+                settings_obj=SimpleNamespace(
+                    DJULE_IMPORT_ROOTS=[tmp_dir],
+                    DJULE_CONTEXT_PROCESSORS=[lambda request: {"request": request}],
+                ),
+            )
+
+        self.assertEqual(html, "<main>hello</main>")
+
+    @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
+    def test_get_djule_template_tag_builtins_discovers_global_simple_tags(self):
+        settings_obj = SimpleNamespace(
+            TEMPLATES=[
+                {
+                    "BACKEND": "django.template.backends.django.DjangoTemplates",
+                    "OPTIONS": {
+                        "builtins": ["tests.fixture_django_tags"],
+                    },
+                }
+            ]
+        )
+
+        builtins = get_djule_template_tag_builtins(
+            request=SimpleNamespace(path="/dashboard/"),
+            base_context={"request_path": "/dashboard/"},
+            settings_obj=settings_obj,
+        )
+
+        self.assertIn("vite_asset", builtins)
+        self.assertIn("context_echo", builtins)
+        self.assertEqual(builtins["vite_asset"]("main.js"), "/static/dist/main.js")
+        self.assertEqual(builtins["context_echo"]("request_path"), "/dashboard/")
+
+    @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
+    def test_render_djule_can_call_django_global_simple_tags(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            template_path = Path(tmp_dir) / "tag.djule"
+            template_path.write_text(
+                """def Page():
+    return (
+        <main>{vite_asset("main.js")}::{context_echo("request_path")}</main>
+    )
+"""
+            )
+
+            html = render_djule(
+                request=SimpleNamespace(path="/assets/"),
+                template_name="tag.djule",
+                settings_obj=SimpleNamespace(
+                    DJULE_IMPORT_ROOTS=[tmp_dir],
+                    DJULE_CONTEXT_PROCESSORS=[vite_host_processor],
+                    TEMPLATES=[
+                        {
+                            "BACKEND": "django.template.backends.django.DjangoTemplates",
+                            "OPTIONS": {
+                                "builtins": ["tests.fixture_django_tags"],
+                            },
+                        }
+                    ],
+                ),
+            )
+
+        self.assertEqual(html, "<main>/static/dist/main.js::/assets/</main>")
+
+    @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
+    def test_discover_djule_editor_globals_reads_context_processors_and_global_tags(self):
+        settings_obj = SimpleNamespace(
+            TEMPLATES=[
+                {
+                    "BACKEND": "django.template.backends.django.DjangoTemplates",
+                    "OPTIONS": {
+                        "builtins": ["tests.fixture_django_tags"],
+                        "context_processors": [
+                            "django.template.context_processors.request",
+                            "tests.test_django_integration.debug_value_processor",
+                        ],
+                    },
+                }
+            ],
+            DJULE_CONTEXT_PROCESSORS=[vite_host_processor],
+        )
+
+        schema = discover_djule_editor_globals(settings_obj=settings_obj)
+
+        self.assertIn("VITE_DEV_HOST", schema)
+        self.assertIn("request", schema)
+        self.assertIn("vite_asset", schema)
+        self.assertIn("context_echo", schema)
+        self.assertEqual(schema["request"]["members"]["user"]["members"]["username"]["detail"], "str")
+        self.assertIn("vite_asset(", schema["vite_asset"]["detail"])
+        self.assertIn("context_echo(", schema["context_echo"]["detail"])
 
     @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
     def test_render_djule_response_returns_http_response(self):
