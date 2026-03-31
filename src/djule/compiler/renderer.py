@@ -21,7 +21,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     responsibilities remain easier to reason about.
     """
 
-    CACHE_VERSION: ClassVar[int] = 9
+    CACHE_VERSION: ClassVar[int] = 10
     _parsed_module_cache: ClassVar[dict[Path, tuple[int, int, Module]]] = {}
     _compiled_expr_cache: ClassVar[dict[str, CodeType]] = {}
     _entry_plan_cache: ClassVar[
@@ -49,6 +49,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         module: Module,
         component_registry: Mapping[str, ExternalComponent] | None = None,
         builtins: Mapping[str, object] | None = None,
+        importables: Mapping[str, object] | None = None,
         *,
         module_path: Path | None = None,
         search_paths: list[Path] | None = None,
@@ -67,13 +68,16 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         self.builtins = dict(self.DEFAULT_BUILTINS)
         if builtins:
             self.builtins.update(builtins)
+        self.importables = dict(importables or {})
         self.search_paths = [path.resolve() for path in (search_paths or [])]
         self.renderer_cache = renderer_cache if renderer_cache is not None else {}
         if self.module_path is not None:
             self.renderer_cache[self.module_path] = self
         self.auto_component_registry: dict[str, ImportedComponentRef] = {}
         self.auto_module_registry: dict[str, "DjuleRenderer"] = {}
+        self.auto_value_registry: dict[str, object] = {}
         self.imports_loaded = False
         self._instance_component_plans: dict[str, ComponentPlan] = {}
         self._plan_dependency_paths: set[Path] | None = None
         self._current_component_name: str | None = None
+        self._ambient_props_stack: list[dict[str, object]] = []

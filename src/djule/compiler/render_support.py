@@ -37,10 +37,36 @@ class DjuleRenderMixin:
         self,
         component_name: str | None = None,
         props: Mapping[str, object] | None = None,
+        ambient_props: Mapping[str, object] | None = None,
     ) -> str:
         """Render one component to its final HTML string output."""
         target_name = component_name or self._default_component_name()
-        return str(self._render_component_by_name(target_name, dict(props or {}), persist_plan=True))
+        self._ambient_props_stack.append(dict(ambient_props or {}))
+        try:
+            return str(self._render_component_by_name(target_name, dict(props or {}), persist_plan=True))
+        finally:
+            self._ambient_props_stack.pop()
+
+    def _render_with_ambient(
+        self,
+        component_name: str,
+        props: dict[str, object],
+        *,
+        ambient_props: Mapping[str, object] | None = None,
+        persist_plan: bool = False,
+    ) -> SafeHtml:
+        """Render one component while inheriting the current ambient globals."""
+        self._ambient_props_stack.append(dict(ambient_props or {}))
+        try:
+            return self._render_component_by_name(component_name, props, persist_plan=persist_plan)
+        finally:
+            self._ambient_props_stack.pop()
+
+    def _current_ambient_props(self) -> dict[str, object]:
+        """Return the ambient globals visible to the active render stack."""
+        if not self._ambient_props_stack:
+            return {}
+        return self._ambient_props_stack[-1]
 
     def _get_component_plan(self, component_name: str, *, persist: bool) -> ComponentPlan | None:
         """Return a compiled component plan, using caches when persistence is allowed."""
@@ -68,6 +94,27 @@ class DjuleRenderMixin:
             raise RendererError("Module has no components to render")
         return self.module.components[0].name
 
+    def _format_render_error(
+        self,
+        message: str,
+        *,
+        component_name: str | None = None,
+        line: int = 0,
+        column: int = 0,
+    ) -> str:
+        """Format a runtime error with file/component/location details first."""
+        context_parts = []
+        if self.module_path is not None:
+            context_parts.append(f"file '{self.module_path}'")
+        active_component_name = component_name or self._current_component_name
+        if active_component_name:
+            context_parts.append(f"component '{active_component_name}'")
+        if line and column:
+            context_parts.append(f"line {line}, column {column}")
+        if context_parts:
+            return f"{', '.join(context_parts)}: {message}"
+        return message
+
     def _render_component_by_name(
         self,
         component_name: str,
@@ -81,7 +128,12 @@ class DjuleRenderMixin:
         try:
             component = self._resolve_component(component_name)
             if component is None:
-                raise RendererError(f"Unknown component '{component_name}'")
+                raise RendererError(
+                    self._format_render_error(
+                        f"Unknown component '{component_name}'",
+                        component_name=component_name,
+                    )
+                )
 
             self._validate_component_props(component_name, component, props)
 
@@ -89,9 +141,10 @@ class DjuleRenderMixin:
                 return self._render_component_def(component, props, persist_plan=persist_plan)
 
             if isinstance(component, ImportedComponentRef):
-                return component.renderer._render_component_by_name(
+                return component.renderer._render_with_ambient(
                     component.component_name,
                     props,
+                    ambient_props=self._current_ambient_props(),
                     persist_plan=persist_plan,
                 )
 
@@ -110,11 +163,16 @@ class DjuleRenderMixin:
         persist_plan: bool = False,
     ) -> SafeHtml:
         """Render a Djule-defined component with prop validation and optional plan reuse."""
-        env = dict(props)
+        env = self._module_import_values()
+        env.update(self._current_ambient_props())
+        env.update(props)
 
         if "children" in env and "children" not in component.params:
             raise RendererError(
-                f"Component '{component.name}' received nested content, but it does not declare a 'children' prop"
+                self._format_render_error(
+                    "Received nested content, but no 'children' prop is declared",
+                    component_name=component.name,
+                )
             )
 
         if "children" in component.params and "children" not in env:
@@ -123,7 +181,12 @@ class DjuleRenderMixin:
         missing = [name for name in component.params if name not in env]
         if missing:
             missing_args = ", ".join(missing)
-            raise RendererError(f"Missing prop(s) for component '{component.name}': {missing_args}")
+            raise RendererError(
+                self._format_render_error(
+                    f"Missing prop(s): {missing_args}",
+                    component_name=component.name,
+                )
+            )
 
         component_plan = self._get_component_plan(component.name, persist=persist_plan)
         if component_plan is None:
@@ -254,12 +317,24 @@ class DjuleRenderMixin:
         props = self._resolve_props(node.attributes, env)
         component = self._resolve_component(node.name)
         if component is None:
-            raise RendererError(f"Unknown component '{node.name}'")
+            raise RendererError(
+                self._format_render_error(
+                    f"Unknown component '{node.name}'",
+                    component_name=node.name,
+                    line=node.line,
+                    column=node.column,
+                )
+            )
 
         if node.children:
             if not self._component_accepts_children(component):
                 raise RendererError(
-                    f"Component '{node.name}' was used with nested content, but it does not declare a 'children' prop"
+                    self._format_render_error(
+                        "Received nested content, but no 'children' prop is declared",
+                        component_name=node.name,
+                        line=node.line,
+                        column=node.column,
+                    )
                 )
             props["children"] = self._render_children(node.children, env)
         return self._render_resolved_component(node.name, component, props)
@@ -411,12 +486,10 @@ class DjuleRenderMixin:
                 self._compiled_expr_cache[source] = code
             return eval(code, scope, scope)
         except Exception as exc:  # pragma: no cover
-            context_parts = []
-            if self.module_path is not None:
-                context_parts.append(f"file '{self.module_path}'")
-            if self._current_component_name:
-                context_parts.append(f"component '{self._current_component_name}'")
-            if line and column:
-                context_parts.append(f"line {line}, column {column}")
-            suffix = f" ({', '.join(context_parts)})" if context_parts else ""
-            raise RendererError(f"Failed to evaluate expression '{source}'{suffix}: {exc}") from exc
+            raise RendererError(
+                self._format_render_error(
+                    f"Failed to evaluate expression '{source}': {exc}",
+                    line=line,
+                    column=column,
+                )
+            ) from exc
