@@ -170,14 +170,14 @@ async function resolveGlobalNames(document, server, configuration) {
   const configuredGlobals = parseConfiguredGlobals(configuration);
 
   try {
-    const discoveredGlobals = await discoverDjangoGlobals(document, server, configuration);
+    const discoveredGlobals = await discoverDjangoContextGlobals(document, server, configuration);
     return configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discoveredGlobals));
   } catch (_error) {
     return configuredGlobalNames(configuredGlobals);
   }
 }
 
-async function discoverDjangoGlobals(document, server, configuration) {
+async function discoverDjangoContextGlobals(document, server, configuration) {
   if (document.uri.scheme !== "file") {
     return new Map();
   }

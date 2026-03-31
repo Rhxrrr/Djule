@@ -26,8 +26,8 @@ async function provideDjuleCompletions(document, position, context, configuratio
     const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
     const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
     const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
-    const globalSymbols = await resolveGlobalSymbols(document, context, configuration, runtimeRoot);
-    const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd);
+    const { builtinSymbols, globalSymbols } = await resolveGlobalSymbols(document, context, configuration, runtimeRoot);
+    const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd, builtinSymbols);
 
     if (importItems !== null) {
       return importItems;
@@ -60,16 +60,25 @@ async function resolveGlobalSymbols(document, context, configuration, runtimeRoo
   const configuredGlobals = parseConfiguredGlobals(configuration);
 
   try {
-    const discoveredGlobals = await discoverDjangoGlobals(document, context, configuration, runtimeRoot);
-    return mergeGlobalSymbols(configuredGlobals, discoveredGlobals);
+    const discovered = await discoverDjangoSymbols(document, context, configuration, runtimeRoot);
+    return {
+      builtinSymbols: discovered.builtinSymbols,
+      globalSymbols: mergeGlobalSymbols(configuredGlobals, discovered.globalSymbols),
+    };
   } catch (_error) {
-    return configuredGlobals;
+    return {
+      builtinSymbols: new Map(),
+      globalSymbols: configuredGlobals,
+    };
   }
 }
 
-async function discoverDjangoGlobals(document, context, configuration, runtimeRoot) {
+async function discoverDjangoSymbols(document, context, configuration, runtimeRoot) {
   if (document.uri.scheme !== "file") {
-    return new Map();
+    return {
+      builtinSymbols: new Map(),
+      globalSymbols: new Map(),
+    };
   }
 
   const pythonCommand = await resolvePythonCommand(document, configuration);
@@ -81,11 +90,17 @@ async function discoverDjangoGlobals(document, context, configuration, runtimeRo
     workspacePath: workspaceFolder ? workspaceFolder.uri.fsPath : "",
   });
 
-  if (!payload || !payload.ok || typeof payload.globals !== "object" || payload.globals === null) {
-    return new Map();
+  if (!payload || !payload.ok) {
+    return {
+      builtinSymbols: new Map(),
+      globalSymbols: new Map(),
+    };
   }
 
-  return parseGlobalSchema(payload.globals);
+  return {
+    builtinSymbols: parseGlobalSchema(payload.builtins),
+    globalSymbols: parseGlobalSchema(payload.globals),
+  };
 }
 
 function normalizeConfiguredString(value) {
@@ -104,7 +119,7 @@ function isMemberAccessContext(linePrefix) {
   return /\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\.[A-Za-z_0-9]*$/.test(linePrefix);
 }
 
-function buildImportCompletions(linePrefix, document, position, runtimeRoot) {
+function buildImportCompletions(linePrefix, document, position, runtimeRoot, builtinSymbols) {
   if (/^\s*from\s*$/.test(linePrefix) || /^\s*import\s*$/.test(linePrefix)) {
     return [];
   }
@@ -113,6 +128,18 @@ function buildImportCompletions(linePrefix, document, position, runtimeRoot) {
     const fromImportNamesMatch = linePrefix.match(/^\s*from\s+([.\w]+)\s+import\s+([A-Za-z0-9_,\s]*)$/);
     if (fromImportNamesMatch) {
       const moduleName = fromImportNamesMatch[1];
+      if (moduleName === "builtins") {
+        const importFragmentInfo = importNameFragmentRange(linePrefix, position);
+        return Array.from(builtinSymbols.entries())
+          .map(([name, info]) => {
+            const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Function);
+            item.insertText = name;
+            item.detail = info.detail || "Djule builtin import";
+            item.range = importFragmentInfo.range;
+            item.filterText = name;
+            return item;
+          });
+      }
       const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
       if (!modulePath) {
         return [];
@@ -147,6 +174,9 @@ function buildImportCompletions(linePrefix, document, position, runtimeRoot) {
 
 function buildModulePathCompletions(document, position, runtimeRoot, modulePrefix) {
   const moduleNames = listDjuleModules(document, runtimeRoot, modulePrefix);
+  if ("builtins".startsWith(modulePrefix || "")) {
+    moduleNames.unshift("builtins");
+  }
   const range = moduleFragmentRange(position, modulePrefix);
   return moduleNames.map((moduleName) => {
     const item = new vscode.CompletionItem(moduleName, vscode.CompletionItemKind.Module);

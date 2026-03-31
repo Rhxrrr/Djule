@@ -16,7 +16,7 @@ const HTML_TAGS = [
 
 const COMPONENT_DEF_RE = /^\s*def\s+([A-Z][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:/gm;
 const IMPORT_FROM_RE =
-  /^\s*from\s+([.\w]+)\s+import\s+([A-Z][A-Za-z0-9_]*(?:\s*,\s*[A-Z][A-Za-z0-9_]*)*)\s*$/gm;
+  /^\s*from\s+([.\w]+)\s+import\s+([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*$/gm;
 const IMPORT_MODULE_RE = /^\s*import\s+([.\w]+)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$/gm;
 const ASSIGNMENT_RE = /^\s*([a-z_][A-Za-z0-9_]*)\s*=/gm;
 const FOR_TARGET_RE = /^\s*for\s+([a-z_][A-Za-z0-9_]*)\s+in\b/gm;

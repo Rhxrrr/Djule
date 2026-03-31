@@ -15,14 +15,16 @@ function collectDocumentSymbols(document, runtimeRoot) {
   const source = document.getText();
   const components = extractComponentSignatures(source);
   const importedComponents = extractImportedComponents(document, source, runtimeRoot);
+  const importedNames = extractImportedNames(source);
 
   for (const [name, params] of importedComponents.directComponents) {
     components.set(name, params);
   }
 
   return {
-    components,
-    namespacedModules: importedComponents.namespacedModules,
+      components,
+      importedNames,
+      namespacedModules: importedComponents.namespacedModules,
   };
 }
 
@@ -47,6 +49,10 @@ function collectCodeNames(document, position, symbols) {
 
   for (const componentName of symbols.components.keys()) {
     names.add(componentName);
+  }
+
+  for (const importedName of symbols.importedNames || []) {
+    names.add(importedName);
   }
 
   for (const namespace of symbols.namespacedModules.keys()) {
@@ -158,6 +164,22 @@ function extractImportedComponents(document, source, runtimeRoot) {
   }
 
   return { directComponents, namespacedModules };
+}
+
+function extractImportedNames(source) {
+  const importedNames = new Set();
+
+  for (const match of source.matchAll(IMPORT_FROM_RE)) {
+    for (const importedName of match[2].split(",").map((name) => name.trim()).filter(Boolean)) {
+      importedNames.add(importedName);
+    }
+  }
+
+  for (const match of source.matchAll(IMPORT_MODULE_RE)) {
+    importedNames.add(match[2] || match[1].split(".")[0]);
+  }
+
+  return importedNames;
 }
 
 module.exports = {
