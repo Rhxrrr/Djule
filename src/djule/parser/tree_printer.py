@@ -183,7 +183,10 @@ class DjuleTreePrinter:
                 return f"ImportModule module={node.module} alias={node.alias}"
             return f"ImportModule module={node.module}"
         if isinstance(node, ComponentDef):
-            params = ", ".join(node.params)
+            params = ", ".join(
+                f"{name}={node.defaults[name].source}" if name in node.defaults else name
+                for name in node.params
+            )
             return f"ComponentDef name={node.name} params=[{params}]"
         if isinstance(node, AssignStmt):
             return f"AssignStmt target={node.target}"

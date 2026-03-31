@@ -76,11 +76,34 @@ class DjulePlanMixin:
         previous_component_name = self._current_compiling_component_name
         self._current_compiling_component_name = component.name
         try:
-            body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, bindings)
-            active_bindings = body_bindings if fully_flattened else bindings
+            initial_bindings = self._apply_component_default_bindings(component, bindings)
+            body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, initial_bindings)
+            active_bindings = body_bindings if fully_flattened else initial_bindings
             return self._compile_markup_plan(component.return_stmt.value, active_bindings), not fully_flattened
         finally:
             self._current_compiling_component_name = previous_component_name
+
+    def _apply_component_default_bindings(
+        self,
+        component: ComponentDef,
+        bindings: dict[str, tuple[str, object]],
+    ) -> dict[str, tuple[str, object]]:
+        """Seed known bindings with component parameter defaults in declaration order."""
+        resolved = dict(bindings)
+
+        for name in component.params:
+            if name in resolved:
+                continue
+
+            default_expr = component.defaults.get(name)
+            if default_expr is not None:
+                binding = self._binding_for_expression(default_expr.source, resolved)
+                if binding is not None:
+                    resolved[name] = binding
+                else:
+                    resolved[name] = ("expr", self._rewrite_python_expr(default_expr.source, resolved))
+
+        return resolved
 
     def _compile_component_body_bindings(
         self,
@@ -243,7 +266,11 @@ class DjulePlanMixin:
             self._track_plan_dependency(component.renderer.module_path)
 
         prop_bindings = self._build_component_bindings(node, bindings)
-        if self._component_accepts_children(component) and "children" not in prop_bindings:
+        if (
+            self._component_accepts_children(component)
+            and "children" not in prop_bindings
+            and not self._component_has_default_prop(component, "children")
+        ):
             prop_bindings["children"] = ("literal", SafeHtml(""))
 
         static_props = self._static_props_from_bindings(prop_bindings)

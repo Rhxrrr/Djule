@@ -169,11 +169,17 @@ class DjuleParser:
         self._consume(TokenType.LPAREN, "Expected '(' after component name")
 
         params: list[str] = []
+        defaults: dict[str, PythonExpr] = {}
         self._skip_newlines()
         if not self._check(TokenType.RPAREN):
             while True:
-                params.append(self._consume(TokenType.NAME, "Expected parameter name").value)
+                param_name = self._consume(TokenType.NAME, "Expected parameter name").value
+                params.append(param_name)
                 self._skip_newlines()
+                if self._match(TokenType.EQUALS):
+                    self._skip_newlines()
+                    defaults[param_name] = self._parse_python_expr_until_any({TokenType.COMMA, TokenType.RPAREN})
+                    self._skip_newlines()
                 if not self._match(TokenType.COMMA):
                     break
                 self._skip_newlines()
@@ -190,7 +196,7 @@ class DjuleParser:
 
         self._skip_newlines()
         self._consume(TokenType.DEDENT, "Expected end of component body")
-        return ComponentDef(name=name, params=params, body=body, return_stmt=return_stmt)
+        return ComponentDef(name=name, params=params, body=body, return_stmt=return_stmt, defaults=defaults)
 
     def _parse_statements_until(self, end_type: TokenType) -> list:
         """Parse statements until the given terminator token is reached."""
@@ -591,7 +597,15 @@ class DjuleParser:
         Nested parentheses, brackets, and braces are tracked so delimiters
         inside the expression do not terminate collection too early.
         """
-        tokens = self._collect_tokens_until({stop_type})
+        return self._parse_python_expr_until_any({stop_type})
+
+    def _parse_python_expr_until_any(self, stop_types: set[TokenType]) -> PythonExpr:
+        """Collect tokens until any stop token and validate the result as Python.
+
+        This is used in places like parameter defaults where more than one
+        delimiter can end the expression at the current nesting level.
+        """
+        tokens = self._collect_tokens_until(stop_types)
         if not tokens:
             raise self._error("Expected Python expression")
         source = self._tokens_to_source(tokens)

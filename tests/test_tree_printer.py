@@ -41,6 +41,16 @@ class TreePrinterTests(unittest.TestCase):
         self.assertIn("ImportModule module=examples.components.ui alias=ui", tree)
         self.assertIn("ComponentNode <ui.Card>", tree)
 
+    def test_component_defaults_appear_in_tree(self):
+        source = """def Button(label="Click me", tone="primary"):
+    return (
+        <button class={tone}>{label}</button>
+    )
+"""
+        tree = DjuleTreePrinter().print_module(DjuleParser.from_source(source).parse())
+
+        self.assertIn('ComponentDef name=Button params=[label="Click me", tone="primary"]', tree)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -97,6 +97,68 @@ class RendererTests(unittest.TestCase):
             "<main><h1>Hello</h1><p>World</p></main>",
         )
 
+    def test_component_default_params_render_when_omitted(self):
+        source = """def Button(label="Click me", tone="primary"):
+    return (
+        <button class={tone}>{label}</button>
+    )
+
+def Page():
+    return (
+        <Button></Button>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(renderer.render(), '<button class="primary">Click me</button>')
+
+    def test_component_default_params_can_reference_earlier_params_and_be_overridden(self):
+        source = """def Button(label, title=label):
+    return (
+        <button title={title}>{label}</button>
+    )
+
+def Page():
+    return (
+        <Button label="Inbox"></Button>
+        <Button label="Archive" title="Archive now"></Button>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(),
+            '<button title="Inbox">Inbox</button><button title="Archive now">Archive</button>',
+        )
+
+    def test_imported_component_default_params_render_when_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "buttons.djule").write_text(
+                """def PrimaryButton(label="Continue", tone="primary"):
+    return (
+        <button class={tone}>{label}</button>
+    )
+"""
+            )
+            (root / "page.djule").write_text(
+                """from components.buttons import PrimaryButton
+
+def Page():
+    return (
+        <PrimaryButton></PrimaryButton>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            html = renderer.render()
+
+        self.assertEqual(html, '<button class="primary">Continue</button>')
+
     def test_local_assignment_shadows_same_named_render_prop(self):
         source = """def Page():
     request = "hello"
