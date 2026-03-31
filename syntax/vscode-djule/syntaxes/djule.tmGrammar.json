@@ -162,7 +162,7 @@
               "name": "punctuation.definition.tag.begin.djule"
             }
           },
-          "end": "(>)",
+          "end": "(/?>)",
           "endCaptures": {
             "1": {
               "name": "punctuation.definition.tag.end.djule"
@@ -264,7 +264,7 @@
               "name": "entity.name.type.class.djule"
             }
           },
-          "end": "(>)",
+          "end": "(/?>)",
           "endCaptures": {
             "1": {
               "name": "punctuation.definition.tag.end.djule"
@@ -291,7 +291,7 @@
               "name": "entity.name.tag.djule"
             }
           },
-          "end": "(>)",
+          "end": "(/?>)",
           "endCaptures": {
             "1": {
               "name": "punctuation.definition.tag.end.djule"
@@ -338,6 +338,9 @@
         },
         {
           "include": "#operators"
+        },
+        {
+          "include": "#punctuation"
         }
       ]
     },
@@ -425,6 +428,7 @@
       "patterns": [
         {
           "name": "string.quoted.double.djule",
+          "contentName": "string.quoted.double.djule",
           "begin": "([rRuUbB]*[fF][rRuUbB]*)(\")",
           "beginCaptures": {
             "1": {
@@ -460,6 +464,7 @@
         },
         {
           "name": "string.quoted.single.djule",
+          "contentName": "string.quoted.single.djule",
           "begin": "([rRuUbB]*[fF][rRuUbB]*)(')",
           "beginCaptures": {
             "1": {
@@ -495,6 +500,7 @@
         },
         {
           "name": "string.quoted.double.djule",
+          "contentName": "string.quoted.double.djule",
           "begin": "([fFrRuUbB]*)\"",
           "beginCaptures": {
             "1": {
@@ -510,6 +516,7 @@
         },
         {
           "name": "string.quoted.single.djule",
+          "contentName": "string.quoted.single.djule",
           "begin": "([fFrRuUbB]*)'",
           "beginCaptures": {
             "1": {
@@ -604,11 +611,11 @@
           "match": "\\)"
         },
         {
-          "name": "punctuation.section.brackets.begin.djule",
+          "name": "punctuation.definition.bracket.square.begin.djule",
           "match": "\\["
         },
         {
-          "name": "punctuation.section.brackets.end.djule",
+          "name": "punctuation.definition.bracket.square.end.djule",
           "match": "\\]"
         }
       ]

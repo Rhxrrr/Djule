@@ -51,6 +51,8 @@ class DjuleLexer:
         self.column = 1
         self.at_line_start = True
         self.paren_depth = 0
+        self.bracket_depth = 0
+        self.brace_depth = 0
         self.indent_stack = [0]
         self._last_significant_token_type: TokenType | None = None
         self._expects_indent = False
@@ -73,7 +75,7 @@ class DjuleLexer:
         body before EOF, it raises a lexer error instead of inventing tokens.
         """
         while not self.is_at_end():
-            if self.at_line_start and self.paren_depth == 0:
+            if self.at_line_start and not self._inside_grouping():
                 self._handle_indentation()
                 if self.is_at_end():
                     break
@@ -89,7 +91,7 @@ class DjuleLexer:
                 continue
 
             if ch == "\n":
-                self._expects_indent = self.paren_depth == 0 and self._last_significant_token_type == TokenType.COLON
+                self._expects_indent = not self._inside_grouping() and self._last_significant_token_type == TokenType.COLON
                 self._push_token(TokenType.NEWLINE, "", self.line, self.column)
                 self.advance()
                 continue
@@ -122,7 +124,7 @@ class DjuleLexer:
 
             raise self._error("Unexpected character", self.line, self.column)
 
-        if self._expects_indent or (self.paren_depth == 0 and self._last_significant_token_type == TokenType.COLON):
+        if self._expects_indent or (not self._inside_grouping() and self._last_significant_token_type == TokenType.COLON):
             raise self._error("Expected indented block", self.line, 1)
 
         if self.tokens and self.tokens[-1].type != TokenType.NEWLINE:
@@ -174,7 +176,10 @@ class DjuleLexer:
                 self._push_token(TokenType.DEDENT, "", self.line, 1)
             if indent != self.indent_stack[-1]:
                 raise self._error("Inconsistent indentation", self.line, 1)
-        
+
+    def _inside_grouping(self) -> bool:
+        """Return whether lexing is currently inside (), [], or {} continuation."""
+        return self.paren_depth > 0 or self.bracket_depth > 0 or self.brace_depth > 0
 
     def _skip_comment(self) -> None:
         """Advance past a comment body until the next newline or EOF."""
@@ -302,6 +307,14 @@ class DjuleLexer:
             self.paren_depth += 1
         elif token_type == TokenType.RPAREN and self.paren_depth > 0:
             self.paren_depth -= 1
+        elif token_type == TokenType.LBRACKET:
+            self.bracket_depth += 1
+        elif token_type == TokenType.RBRACKET and self.bracket_depth > 0:
+            self.bracket_depth -= 1
+        elif token_type == TokenType.LBRACE:
+            self.brace_depth += 1
+        elif token_type == TokenType.RBRACE and self.brace_depth > 0:
+            self.brace_depth -= 1
         return True
 
     def _match_operator(self) -> bool:
