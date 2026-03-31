@@ -11,10 +11,10 @@ const { resolveImportedModulePath } = require("./runtime");
 
 const moduleSignatureCache = new Map();
 
-function collectDocumentSymbols(document, runtimeRoot) {
+function collectDocumentSymbols(document, importRoots) {
   const source = document.getText();
   const components = extractComponentSignatures(source);
-  const importedComponents = extractImportedComponents(document, source, runtimeRoot);
+  const importedComponents = extractImportedComponents(document, source, importRoots);
   const importedNames = extractImportedNames(source);
 
   for (const [name, params] of importedComponents.directComponents) {
@@ -134,14 +134,14 @@ function componentContextAtPosition(document, position, source) {
   return null;
 }
 
-function extractImportedComponents(document, source, runtimeRoot) {
+function extractImportedComponents(document, source, importRoots) {
   const directComponents = new Map();
   const namespacedModules = new Map();
 
   for (const match of source.matchAll(IMPORT_FROM_RE)) {
     const moduleName = match[1];
     const importedNames = match[2].split(",").map((name) => name.trim()).filter(Boolean);
-    const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+    const modulePath = resolveImportedModulePath(document, moduleName, importRoots);
     if (!modulePath) {
       continue;
     }
@@ -156,7 +156,7 @@ function extractImportedComponents(document, source, runtimeRoot) {
   for (const match of source.matchAll(IMPORT_MODULE_RE)) {
     const moduleName = match[1];
     const alias = match[2] || moduleName;
-    const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+    const modulePath = resolveImportedModulePath(document, moduleName, importRoots);
     if (!modulePath) {
       continue;
     }

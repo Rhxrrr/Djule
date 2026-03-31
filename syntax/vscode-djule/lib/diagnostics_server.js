@@ -59,11 +59,12 @@ class DjuleDiagnosticsServer {
     this.stderrBuffer = "";
   }
 
-  async checkDocument(document, globalNames = []) {
+  async checkDocument(document, globalNames = [], searchPaths = []) {
     const request = {
       command: "check",
       documentPath: document.uri.scheme === "file" ? document.uri.fsPath : undefined,
       globals: globalNames,
+      searchPaths,
       source: document.getText(),
     };
     return this.request(request);

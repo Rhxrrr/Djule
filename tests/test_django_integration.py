@@ -494,23 +494,26 @@ def Page():
 
     @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
     def test_discover_djule_editor_globals_reads_context_processors_and_global_tags(self):
-        settings_obj = SimpleNamespace(
-            TEMPLATES=[
-                {
-                    "BACKEND": DJULE_TEMPLATE_BACKEND,
-                    "OPTIONS": {
-                        "builtins": ["tests.fixture_django_tags"],
-                        "context_processors": [
-                            "django.template.context_processors.request",
-                            "tests.test_django_integration.debug_value_processor",
-                            "tests.test_django_integration.vite_host_processor",
-                        ],
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            settings_obj = SimpleNamespace(
+                TEMPLATES=[
+                    {
+                        "BACKEND": DJULE_TEMPLATE_BACKEND,
+                        "DIRS": [tmp_dir],
+                        "APP_DIRS": False,
+                        "OPTIONS": {
+                            "builtins": ["tests.fixture_django_tags"],
+                            "context_processors": [
+                                "django.template.context_processors.request",
+                                "tests.test_django_integration.debug_value_processor",
+                                "tests.test_django_integration.vite_host_processor",
+                            ],
+                        },
                     },
-                }
-            ]
-        )
+                ]
+            )
 
-        payload = discover_djule_editor_globals(settings_obj=settings_obj)
+            payload = discover_djule_editor_globals(settings_obj=settings_obj)
         globals_schema = payload["globals"]
         builtin_schema = payload["builtins"]
 
@@ -518,6 +521,7 @@ def Page():
         self.assertIn("request", globals_schema)
         self.assertIn("vite_asset", builtin_schema)
         self.assertIn("context_echo", builtin_schema)
+        self.assertEqual(payload["searchPaths"], [str(Path(tmp_dir).resolve())])
         self.assertEqual(globals_schema["request"]["members"]["user"]["members"]["username"]["detail"], "str")
         self.assertIn("vite_asset(", builtin_schema["vite_asset"]["detail"])
         self.assertIn("context_echo(", builtin_schema["context_echo"]["detail"])

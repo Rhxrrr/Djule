@@ -149,7 +149,7 @@ def _discover_editor_globals_payload(
             settings_module=settings_module,
         )
     except Exception:
-        discovery_payload = {"builtins": {}, "globals": {}}
+        discovery_payload = {"builtins": {}, "globals": {}, "searchPaths": []}
     return {"ok": True, **discovery_payload}
 
 
