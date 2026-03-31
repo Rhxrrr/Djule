@@ -31,7 +31,7 @@ async function resolvePythonCommand(document, configuration) {
   return "python3";
 }
 
-function listDjuleModules(document, runtimeRoot, modulePrefix) {
+function listDjuleModules(document, importRoots, modulePrefix) {
   if (!modulePrefix) {
     return [];
   }
@@ -40,10 +40,10 @@ function listDjuleModules(document, runtimeRoot, modulePrefix) {
     return listRelativeDjuleModules(document, modulePrefix);
   }
 
-  return listAbsoluteDjuleModules(runtimeRoot, modulePrefix);
+  return listAbsoluteDjuleModules(importRoots, modulePrefix);
 }
 
-function resolveImportedModulePath(document, moduleName, runtimeRoot) {
+function resolveImportedModulePath(document, moduleName, importRoots) {
   if (moduleName.startsWith(".")) {
     if (document.uri.scheme !== "file") {
       return null;
@@ -71,13 +71,15 @@ function resolveImportedModulePath(document, moduleName, runtimeRoot) {
   }
 
   const moduleParts = moduleName.split(".");
-  const fileCandidate = path.join(runtimeRoot, ...moduleParts) + ".djule";
-  const packageCandidate = path.join(runtimeRoot, ...moduleParts, "__init__.djule");
-  if (fs.existsSync(fileCandidate)) {
-    return fileCandidate;
-  }
-  if (fs.existsSync(packageCandidate)) {
-    return packageCandidate;
+  for (const importRoot of resolveImportRoots(importRoots)) {
+    const fileCandidate = path.join(importRoot, ...moduleParts) + ".djule";
+    const packageCandidate = path.join(importRoot, ...moduleParts, "__init__.djule");
+    if (fs.existsSync(fileCandidate)) {
+      return fileCandidate;
+    }
+    if (fs.existsSync(packageCandidate)) {
+      return packageCandidate;
+    }
   }
   return null;
 }
@@ -143,9 +145,16 @@ function listRuntimeCandidateDirectories(document) {
   return dedupePaths(candidates);
 }
 
-function listAbsoluteDjuleModules(runtimeRoot, modulePrefix) {
-  const modules = collectDjuleModulesUnderRoot(runtimeRoot);
-  return nextModuleSegments(modules, modulePrefix);
+function listAbsoluteDjuleModules(importRoots, modulePrefix) {
+  const modules = new Set();
+
+  for (const importRoot of resolveImportRoots(importRoots)) {
+    for (const moduleName of collectDjuleModulesUnderRoot(importRoot)) {
+      modules.add(moduleName);
+    }
+  }
+
+  return nextModuleSegments(Array.from(modules), modulePrefix);
 }
 
 function listRelativeDjuleModules(document, modulePrefix) {
@@ -167,6 +176,33 @@ function listRelativeDjuleModules(document, modulePrefix) {
 
   const modules = collectDjuleModulesUnderRoot(baseDir);
   return nextModuleSegments(modules, remainder);
+}
+
+function resolveImportRoots(importRoots) {
+  if (Array.isArray(importRoots)) {
+    return dedupePaths(importRoots);
+  }
+
+  if (typeof importRoots === "string") {
+    return dedupePaths([importRoots]);
+  }
+
+  if (importRoots && typeof importRoots === "object") {
+    return dedupePaths([
+      ...normalizeSearchPaths(importRoots.searchPaths),
+      importRoots.cwd,
+    ]);
+  }
+
+  return [];
+}
+
+function normalizeSearchPaths(searchPaths) {
+  if (!Array.isArray(searchPaths)) {
+    return [];
+  }
+
+  return searchPaths.filter((searchPath) => typeof searchPath === "string" && searchPath.trim());
 }
 
 function collectDjuleModulesUnderRoot(rootDir) {
@@ -380,6 +416,8 @@ function safeResolve(candidate) {
 
 module.exports = {
   listDjuleModules,
+  normalizeSearchPaths,
+  resolveImportRoots,
   resolvePythonCommand,
   resolveImportedModulePath,
   resolveRuntimeRoot,

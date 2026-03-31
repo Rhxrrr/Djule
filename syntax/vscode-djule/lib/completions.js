@@ -10,6 +10,8 @@ const {
 } = require("./globals");
 const {
   listDjuleModules,
+  normalizeSearchPaths,
+  resolveImportRoots,
   resolveImportedModulePath,
   resolvePythonCommand,
   resolveRuntimeRoot,
@@ -25,9 +27,14 @@ async function provideDjuleCompletions(document, position, context, configuratio
   try {
     const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
     const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
-    const symbols = collectDocumentSymbols(document, runtimeRoot.cwd);
-    const { builtinSymbols, globalSymbols } = await resolveGlobalSymbols(document, context, configuration, runtimeRoot);
-    const importItems = buildImportCompletions(linePrefix, document, position, runtimeRoot.cwd, builtinSymbols);
+    const { builtinSymbols, globalSymbols, importRoots } = await resolveGlobalSymbols(
+      document,
+      context,
+      configuration,
+      runtimeRoot
+    );
+    const symbols = collectDocumentSymbols(document, importRoots);
+    const importItems = buildImportCompletions(linePrefix, document, position, importRoots, builtinSymbols);
 
     if (importItems !== null) {
       return importItems;
@@ -58,17 +65,20 @@ async function provideDjuleCompletions(document, position, context, configuratio
 
 async function resolveGlobalSymbols(document, context, configuration, runtimeRoot) {
   const configuredGlobals = parseConfiguredGlobals(configuration);
+  const fallbackRoots = resolveImportRoots(runtimeRoot);
 
   try {
     const discovered = await discoverDjangoSymbols(document, context, configuration, runtimeRoot);
     return {
       builtinSymbols: discovered.builtinSymbols,
       globalSymbols: mergeGlobalSymbols(configuredGlobals, discovered.globalSymbols),
+      importRoots: resolveImportRoots([...discovered.searchPaths, ...fallbackRoots]),
     };
   } catch (_error) {
     return {
       builtinSymbols: new Map(),
       globalSymbols: configuredGlobals,
+      importRoots: fallbackRoots,
     };
   }
 }
@@ -78,6 +88,7 @@ async function discoverDjangoSymbols(document, context, configuration, runtimeRo
     return {
       builtinSymbols: new Map(),
       globalSymbols: new Map(),
+      searchPaths: [],
     };
   }
 
@@ -94,12 +105,14 @@ async function discoverDjangoSymbols(document, context, configuration, runtimeRo
     return {
       builtinSymbols: new Map(),
       globalSymbols: new Map(),
+      searchPaths: [],
     };
   }
 
   return {
     builtinSymbols: parseGlobalSchema(payload.builtins),
     globalSymbols: parseGlobalSchema(payload.globals),
+    searchPaths: normalizeSearchPaths(payload.searchPaths),
   };
 }
 
@@ -119,7 +132,7 @@ function isMemberAccessContext(linePrefix) {
   return /\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\.[A-Za-z_0-9]*$/.test(linePrefix);
 }
 
-function buildImportCompletions(linePrefix, document, position, runtimeRoot, builtinSymbols) {
+function buildImportCompletions(linePrefix, document, position, importRoots, builtinSymbols) {
   if (/^\s*from\s*$/.test(linePrefix) || /^\s*import\s*$/.test(linePrefix)) {
     return [];
   }
@@ -140,7 +153,7 @@ function buildImportCompletions(linePrefix, document, position, runtimeRoot, bui
             return item;
           });
       }
-      const modulePath = resolveImportedModulePath(document, moduleName, runtimeRoot);
+      const modulePath = resolveImportedModulePath(document, moduleName, importRoots);
       if (!modulePath) {
         return [];
       }
@@ -158,12 +171,12 @@ function buildImportCompletions(linePrefix, document, position, runtimeRoot, bui
 
     const fromModuleMatch = linePrefix.match(/^\s*from\s+([.\w]*)$/);
     if (fromModuleMatch) {
-      return buildModulePathCompletions(document, position, runtimeRoot, fromModuleMatch[1] || "");
+      return buildModulePathCompletions(document, position, importRoots, fromModuleMatch[1] || "");
     }
 
     const bareImportMatch = linePrefix.match(/^\s*import\s+([.\w]*)$/);
     if (bareImportMatch) {
-      return buildModulePathCompletions(document, position, runtimeRoot, bareImportMatch[1] || "");
+      return buildModulePathCompletions(document, position, importRoots, bareImportMatch[1] || "");
     }
 
     return [];
@@ -172,8 +185,8 @@ function buildImportCompletions(linePrefix, document, position, runtimeRoot, bui
   return null;
 }
 
-function buildModulePathCompletions(document, position, runtimeRoot, modulePrefix) {
-  const moduleNames = listDjuleModules(document, runtimeRoot, modulePrefix);
+function buildModulePathCompletions(document, position, importRoots, modulePrefix) {
+  const moduleNames = listDjuleModules(document, importRoots, modulePrefix);
   if ("builtins".startsWith(modulePrefix || "")) {
     moduleNames.unshift("builtins");
   }

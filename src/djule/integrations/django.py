@@ -497,7 +497,7 @@ def discover_djule_editor_globals(
     document_path: str | Path | None = None,
     workspace_path: str | Path | None = None,
 ) -> dict[str, object]:
-    """Discover Django-backed globals and importable builtins for editor tooling."""
+    """Discover Django-backed globals, builtins, and import roots for editor tooling."""
     globals_schema: dict[str, object] = {}
     request = _editor_request_stub()
     resolved_settings = _ensure_django_settings(
@@ -541,9 +541,15 @@ def discover_djule_editor_globals(
         if isinstance(name, str) and name.isidentifier()
     }
 
+    search_paths = [
+        str(path)
+        for path in get_djule_search_paths(settings_obj=resolved_settings or settings_obj)
+    ]
+
     return {
         "builtins": tag_schema,
         "globals": globals_schema,
+        "searchPaths": search_paths,
     }
 
 

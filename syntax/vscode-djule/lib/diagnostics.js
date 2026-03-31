@@ -6,9 +6,8 @@ const {
   configuredGlobalNames,
   mergeGlobalSymbols,
   parseConfiguredGlobals,
-  parseGlobalSchema,
 } = require("./globals");
-const { resolvePythonCommand, resolveRuntimeRoot } = require("./runtime");
+const { normalizeSearchPaths, resolveImportRoots, resolvePythonCommand, resolveRuntimeRoot } = require("./runtime");
 
 function registerDiagnostics(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
@@ -46,8 +45,8 @@ function registerDiagnostics(context) {
       const pythonCommand = await resolvePythonCommand(document, configuration);
       const runtimeRoot = resolveRuntimeRoot(document, context, configuration);
       const server = serverPool.getServer(pythonCommand, runtimeRoot);
-      const globalNames = await resolveGlobalNames(document, server, configuration);
-      payload = await server.checkDocument(document, globalNames);
+      const editorContext = await resolveEditorContext(document, server, configuration, runtimeRoot);
+      payload = await server.checkDocument(document, editorContext.globalNames, editorContext.searchPaths);
     } catch (error) {
       if (document.isClosed || document.version !== expectedVersion) {
         return;
@@ -166,20 +165,33 @@ function fallbackRange(document) {
   return diagnosticRange(document, 1, 1);
 }
 
-async function resolveGlobalNames(document, server, configuration) {
+async function resolveEditorContext(document, server, configuration, runtimeRoot) {
   const configuredGlobals = parseConfiguredGlobals(configuration);
+  const fallbackContext = {
+    globalNames: configuredGlobalNames(configuredGlobals),
+    searchPaths: resolveImportRoots(runtimeRoot),
+  };
 
   try {
-    const discoveredGlobals = await discoverDjangoContextGlobals(document, server, configuration);
-    return configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discoveredGlobals));
+    const discovered = await discoverDjangoContext(document, server, configuration, runtimeRoot);
+    return {
+      globalNames: configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discovered.globalSymbols)),
+      searchPaths: resolveImportRoots([
+        ...discovered.searchPaths,
+        ...resolveImportRoots(runtimeRoot),
+      ]),
+    };
   } catch (_error) {
-    return configuredGlobalNames(configuredGlobals);
+    return fallbackContext;
   }
 }
 
-async function discoverDjangoContextGlobals(document, server, configuration) {
+async function discoverDjangoContext(document, server, configuration, runtimeRoot) {
   if (document.uri.scheme !== "file") {
-    return new Map();
+    return {
+      globalSymbols: new Map(),
+      searchPaths: resolveImportRoots(runtimeRoot),
+    };
   }
 
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -188,11 +200,17 @@ async function discoverDjangoContextGlobals(document, server, configuration) {
     workspacePath: workspaceFolder ? workspaceFolder.uri.fsPath : "",
   });
 
-  if (!payload || !payload.ok || typeof payload.globals !== "object" || payload.globals === null) {
-    return new Map();
+  if (!payload || !payload.ok) {
+    return {
+      globalSymbols: new Map(),
+      searchPaths: resolveImportRoots(runtimeRoot),
+    };
   }
 
-  return parseGlobalSchema(payload.globals);
+  return {
+    globalSymbols: parseGlobalSchema(payload.globals),
+    searchPaths: normalizeSearchPaths(payload.searchPaths),
+  };
 }
 
 function normalizeConfiguredString(value) {
