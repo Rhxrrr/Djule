@@ -48,6 +48,7 @@ SAFE_BUILTIN_NAMES = {
     "sum",
     "tuple",
 }
+VIRTUAL_IMPORT_MODULES = {"builtins"}
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,11 @@ class DjuleAnalyzer:
     def _analyze_imports(self, imports: list[ImportFrom | ImportModule]) -> None:
         """Report imports whose target modules cannot be resolved from search paths."""
         for import_node in imports:
-            if self._can_resolve_import(import_node.module):
+            if import_node.module in VIRTUAL_IMPORT_MODULES:
+                continue
+            if self._resolve_import_path(import_node.module) is not None:
+                if isinstance(import_node, ImportFrom):
+                    continue
                 continue
 
             start_column = import_node.column + 5 if isinstance(import_node, ImportFrom) else import_node.column + 7
@@ -123,9 +128,15 @@ class DjuleAnalyzer:
 
     def _can_resolve_import(self, module_name: str) -> bool:
         """Return whether an import can be resolved as absolute or relative."""
+        return self._resolve_import_path(module_name) is not None or module_name in VIRTUAL_IMPORT_MODULES
+
+    def _resolve_import_path(self, module_name: str) -> Path | None:
+        """Return the resolved filesystem path for one Djule import when available."""
+        if module_name in VIRTUAL_IMPORT_MODULES:
+            return None
         if module_name.startswith("."):
-            return self._resolve_relative_import(module_name) is not None
-        return self._resolve_absolute_import(module_name) is not None
+            return self._resolve_relative_import(module_name)
+        return self._resolve_absolute_import(module_name)
 
     def _resolve_absolute_import(self, module_name: str) -> Path | None:
         """Resolve an absolute Djule module import to a file path if it exists."""

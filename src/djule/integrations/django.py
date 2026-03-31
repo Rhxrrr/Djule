@@ -13,6 +13,60 @@ from typing import Callable, Mapping, Sequence
 from djule.compiler import DjuleRenderer
 
 _AUTORELOAD_CONNECTED = False
+DJULE_TEMPLATE_BACKEND = "djule.integrations.django_backend.DjuleTemplates"
+
+
+def _is_djule_template_backend(template: object) -> bool:
+    """Return whether one `TEMPLATES` entry is Djule's own Django backend."""
+    return isinstance(template, dict) and template.get("BACKEND") == DJULE_TEMPLATE_BACKEND
+
+
+def _configured_djule_templates(settings_obj) -> list[dict[str, object]]:
+    """Return configured Djule backend entries from Django `TEMPLATES`."""
+    templates = getattr(settings_obj, "TEMPLATES", []) or []
+    return [template for template in templates if _is_djule_template_backend(template)]
+
+
+def _is_djule_backend_instance(backend: object) -> bool:
+    """Return whether one live Django engine backend instance is Djule's backend."""
+    return f"{backend.__class__.__module__}.{backend.__class__.__name__}" == DJULE_TEMPLATE_BACKEND
+
+
+def _template_context_processors_from_settings(settings_obj) -> list[Callable[[object], object]]:
+    """Resolve context processors from Djule backend settings, including hidden Django ones."""
+    try:
+        from django.template.engine import Engine
+    except ModuleNotFoundError:
+        return []
+
+    resolved_processors: list[Callable[[object], object]] = []
+    for template in _configured_djule_templates(settings_obj):
+        options = template.get("OPTIONS")
+        if not isinstance(options, dict):
+            options = {}
+
+        configured_processors = options.get("context_processors") or []
+        if not isinstance(configured_processors, Sequence) or isinstance(configured_processors, (str, bytes)):
+            configured_processors = []
+
+        dotted_processors = [processor for processor in configured_processors if isinstance(processor, str)]
+        callable_processors = [processor for processor in configured_processors if callable(processor)]
+
+        engine = Engine(
+            dirs=list(template.get("DIRS", []) or []),
+            app_dirs=bool(template.get("APP_DIRS", False)),
+            context_processors=dotted_processors,
+            debug=bool(options.get("debug", getattr(settings_obj, "DEBUG", False))),
+            string_if_invalid=options.get("string_if_invalid", ""),
+            file_charset=options.get("file_charset", "utf-8"),
+            libraries=dict(options.get("libraries", {}) or {}),
+            builtins=list(options.get("builtins", []) or []),
+            autoescape=bool(options.get("autoescape", True)),
+        )
+        resolved_processors.extend(engine.template_context_processors)
+        resolved_processors.extend(callable_processors)
+
+    return resolved_processors
 
 
 def _get_settings(settings_obj=None):
@@ -58,40 +112,27 @@ def get_djule_context_processors(
 ) -> list[Callable[[object], object]]:
     """Resolve the ordered Djule context processors for Django rendering.
 
-    Djule mirrors Django's context-processor style by reading
-    `TEMPLATES[..].OPTIONS.context_processors`, then appending any optional
-    `DJULE_CONTEXT_PROCESSORS`. Extra processors passed directly to the render
-    helper are added last. Duplicate entries are removed while preserving order.
+    Djule reads implicit context processors only from configured
+    `DjuleTemplates` backend entries. Extra processors passed directly to the
+    render helper are added last. Duplicate entries are removed while
+    preserving order.
     """
     settings = _get_settings(settings_obj)
-    configured: list[str | Callable[[object], object]] = []
-
-    for template in getattr(settings, "TEMPLATES", []) or []:
-        if not isinstance(template, dict):
-            continue
-        if template.get("BACKEND") != "django.template.backends.django.DjangoTemplates":
-            continue
-        options = template.get("OPTIONS")
-        if not isinstance(options, dict):
-            continue
-        processors = options.get("context_processors")
-        if isinstance(processors, Sequence) and not isinstance(processors, (str, bytes)):
-            configured.extend(processors)
-
-    djule_specific = getattr(settings, "DJULE_CONTEXT_PROCESSORS", None)
-    if isinstance(djule_specific, Sequence) and not isinstance(djule_specific, (str, bytes)):
-        configured.extend(djule_specific)
-
-    if extra_processors:
-        configured.extend(extra_processors)
-
     resolved_processors: list[Callable[[object], object]] = []
     seen: set[object] = set()
-    for processor in configured:
+
+    for processor in _template_context_processors_from_settings(settings):
         if processor in seen:
             continue
         seen.add(processor)
-        resolved_processors.append(_resolve_context_processor(processor))
+        resolved_processors.append(processor)
+
+    for processor in extra_processors or ():
+        resolved = _resolve_context_processor(processor)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        resolved_processors.append(resolved)
 
     return resolved_processors
 
@@ -125,15 +166,11 @@ def build_djule_context(
 
 
 def _django_template_options(settings_obj=None) -> list[dict[str, object]]:
-    """Return Django template OPTIONS blocks from configured template backends."""
+    """Return Djule backend OPTIONS blocks from configured template backends."""
     settings = _get_settings(settings_obj)
     options_list: list[dict[str, object]] = []
 
-    for template in getattr(settings, "TEMPLATES", []) or []:
-        if not isinstance(template, dict):
-            continue
-        if template.get("BACKEND") != "django.template.backends.django.DjangoTemplates":
-            continue
+    for template in _configured_djule_templates(settings):
         options = template.get("OPTIONS")
         if isinstance(options, dict):
             options_list.append(options)
@@ -253,6 +290,8 @@ def _iter_django_builtin_libraries(
 
         seen_libraries: set[int] = set()
         for backend in engines.all():
+            if not _is_djule_backend_instance(backend):
+                continue
             engine = getattr(backend, "engine", None)
             template_builtins = getattr(engine, "template_builtins", None)
             if not template_builtins:
@@ -309,6 +348,23 @@ def _tag_runtime_wrapper(
     return _wrapped
 
 
+def _module_level_tag_runtime_wrapper(name: str, compile_func):
+    """Resolve tag helpers like `django.templatetags.static.static` when present."""
+    module_name = getattr(compile_func, "__module__", "")
+    if not module_name:
+        return None
+
+    try:
+        module = import_module(module_name)
+    except Exception:
+        return None
+
+    candidate = getattr(module, name, None)
+    if candidate is None or candidate is compile_func or not callable(candidate):
+        return None
+    return candidate
+
+
 def get_djule_template_tag_builtins(
     *,
     request=None,
@@ -331,14 +387,18 @@ def get_djule_template_tag_builtins(
         if not isinstance(tags, Mapping):
             continue
         for name, compile_func in tags.items():
-            if not isinstance(name, str) or not callable(compile_func) or not hasattr(compile_func, "__wrapped__"):
+            if not isinstance(name, str) or not callable(compile_func):
                 continue
-            wrapped = _tag_runtime_wrapper(
-                name,
-                compile_func,
-                request=request,
-                base_context=base_context,
-            )
+            wrapped = None
+            if hasattr(compile_func, "__wrapped__"):
+                wrapped = _tag_runtime_wrapper(
+                    name,
+                    compile_func,
+                    request=request,
+                    base_context=base_context,
+                )
+            if wrapped is None:
+                wrapped = _module_level_tag_runtime_wrapper(name, compile_func)
             if wrapped is not None:
                 builtins[name] = wrapped
 
@@ -437,8 +497,8 @@ def discover_djule_editor_globals(
     document_path: str | Path | None = None,
     workspace_path: str | Path | None = None,
 ) -> dict[str, object]:
-    """Discover Django-backed globals and simple tags for Djule editor tooling."""
-    schema: dict[str, object] = {}
+    """Discover Django-backed globals and importable builtins for editor tooling."""
+    globals_schema: dict[str, object] = {}
     request = _editor_request_stub()
     resolved_settings = _ensure_django_settings(
         settings_obj=settings_obj,
@@ -463,7 +523,7 @@ def discover_djule_editor_globals(
 
     for name, value in context_values.items():
         if isinstance(name, str) and name.isidentifier():
-            schema[name] = _schema_from_value(value)
+            globals_schema[name] = _schema_from_value(value)
 
     tag_builtins = get_djule_template_tag_builtins(
         request=request,
@@ -481,7 +541,10 @@ def discover_djule_editor_globals(
         if isinstance(name, str) and name.isidentifier()
     }
 
-    return _merge_editor_schema(schema, tag_schema)
+    return {
+        "builtins": tag_schema,
+        "globals": globals_schema,
+    }
 
 
 def get_djule_search_paths(
@@ -504,8 +567,21 @@ def get_djule_search_paths(
     if configured:
         candidates = [Path(entry) for entry in configured]
     else:
-        base_dir = getattr(settings, "BASE_DIR", None)
-        candidates = [Path(base_dir)] if base_dir else DjuleRenderer._default_search_paths()
+        candidates = []
+        for template in _configured_djule_templates(settings):
+            for entry in template.get("DIRS", []) or []:
+                candidates.append(Path(entry))
+            if template.get("APP_DIRS"):
+                try:
+                    from django.template.utils import get_app_template_dirs
+
+                    candidates.extend(Path(entry) for entry in get_app_template_dirs("templates"))
+                except Exception:
+                    continue
+
+        if not candidates:
+            base_dir = getattr(settings, "BASE_DIR", None)
+            candidates = [Path(base_dir)] if base_dir else DjuleRenderer._default_search_paths()
 
     if extra_paths:
         candidates.extend(Path(entry) for entry in extra_paths)
@@ -703,11 +779,13 @@ def render_djule(
         settings_obj=settings_obj,
         context_processors=context_processors,
     )
+    ambient_props = dict(render_props)
     render_props.update(props or {})
     if include_request_prop and request is not None and "request" not in render_props:
         render_props["request"] = request
+        ambient_props["request"] = request
 
-    resolved_builtins = get_djule_template_tag_builtins(
+    resolved_importables = get_djule_template_tag_builtins(
         request=request,
         base_context=render_props,
         settings_obj=settings_obj,
@@ -715,15 +793,19 @@ def render_djule(
         workspace_path=template_path.parent,
     )
     if builtins:
-        resolved_builtins.update(builtins)
+        resolved_importables.update(builtins)
 
     renderer = DjuleRenderer.from_file(
         template_path,
         component_registry=component_registry,
-        builtins=resolved_builtins,
+        importables=resolved_importables,
         search_paths=resolved_search_paths,
     )
-    return renderer.render(component_name=component_name, props=render_props)
+    return renderer.render(
+        component_name=component_name,
+        props=render_props,
+        ambient_props=ambient_props,
+    )
 
 
 def render_djule_response(

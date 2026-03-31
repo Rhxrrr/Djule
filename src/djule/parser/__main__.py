@@ -143,14 +143,14 @@ def _discover_editor_globals_payload(
 ) -> dict[str, object]:
     """Discover Django-backed globals for editor diagnostics and autocomplete."""
     try:
-        globals_payload = discover_djule_editor_globals(
+        discovery_payload = discover_djule_editor_globals(
             document_path=document_path,
             workspace_path=workspace_path,
             settings_module=settings_module,
         )
     except Exception:
-        globals_payload = {}
-    return {"globals": globals_payload, "ok": True}
+        discovery_payload = {"builtins": {}, "globals": {}}
+    return {"ok": True, **discovery_payload}
 
 
 def _serve_json() -> int:

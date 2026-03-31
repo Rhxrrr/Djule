@@ -44,6 +44,7 @@ class DjuleCacheMixin:
         source: str,
         component_registry=None,
         builtins=None,
+        importables=None,
         *,
         search_paths: list[Path] | None = None,
     ):
@@ -54,6 +55,7 @@ class DjuleCacheMixin:
             module,
             component_registry=component_registry,
             builtins=builtins,
+            importables=importables,
             search_paths=resolved_search_paths,
         )
 
@@ -63,6 +65,7 @@ class DjuleCacheMixin:
         path: str | Path,
         component_registry=None,
         builtins=None,
+        importables=None,
         *,
         search_paths: list[Path] | None = None,
         renderer_cache: dict[Path, "DjuleRenderer"] | None = None,
@@ -75,6 +78,7 @@ class DjuleCacheMixin:
             module,
             component_registry=component_registry,
             builtins=builtins,
+            importables=importables,
             module_path=resolved_path,
             search_paths=resolved_search_paths,
             renderer_cache=renderer_cache,
