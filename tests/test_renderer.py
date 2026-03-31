@@ -558,6 +558,22 @@ def Page():
 
         self.assertEqual(html, '<html><body class="app-shell"><main>Hello</main></body></html>')
 
+    def test_component_props_accept_bare_expression_values(self):
+        source = """
+def InputErr(input_name, enable_error, initial_value=""):
+    return (
+        <label data-name={input_name} data-error={enable_error} data-value={initial_value}></label>
+    )
+
+def Page(username):
+    return (
+        <InputErr input_name=username enable_error=True initial_value=username></InputErr>
+    )
+"""
+        renderer = DjuleRenderer.from_source(source, search_paths=[EXAMPLES])
+        html = renderer.render(props={"username": "rhxrr"})
+        self.assertEqual(html, '<label data-name="rhxrr" data-error="True" data-value="rhxrr"></label>')
+
     def test_nested_content_requires_children_param(self):
         source = """
 def Icon(name):

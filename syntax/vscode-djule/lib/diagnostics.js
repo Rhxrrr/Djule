@@ -4,10 +4,18 @@ const { DIAGNOSTIC_DEBOUNCE_MS, DIAGNOSTIC_SOURCE } = require("./constants");
 const { createDiagnosticsServerPool } = require("./diagnostics_server");
 const {
   configuredGlobalNames,
+  parseGlobalSchema,
   mergeGlobalSymbols,
   parseConfiguredGlobals,
 } = require("./globals");
-const { normalizeSearchPaths, resolveImportRoots, resolvePythonCommand, resolveRuntimeRoot } = require("./runtime");
+const {
+  inferDjangoFallbackGlobals,
+  inferDocumentImportRoots,
+  normalizeSearchPaths,
+  resolveImportRoots,
+  resolvePythonCommand,
+  resolveRuntimeRoot,
+} = require("./runtime");
 
 function registerDiagnostics(context) {
   const diagnostics = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
@@ -167,17 +175,24 @@ function fallbackRange(document) {
 
 async function resolveEditorContext(document, server, configuration, runtimeRoot) {
   const configuredGlobals = parseConfiguredGlobals(configuration);
+  const fallbackGlobals = parseGlobalSchema(inferDjangoFallbackGlobals(document, configuration));
+  const inferredSearchPaths = inferDocumentImportRoots(document, document.getText());
   const fallbackContext = {
-    globalNames: configuredGlobalNames(configuredGlobals),
-    searchPaths: resolveImportRoots(runtimeRoot),
+    globalNames: configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, fallbackGlobals)),
+    searchPaths: resolveImportRoots([
+      ...inferredSearchPaths,
+      ...resolveImportRoots(runtimeRoot),
+    ]),
   };
 
   try {
     const discovered = await discoverDjangoContext(document, server, configuration, runtimeRoot);
+    const discoveredGlobals = mergeGlobalSymbols(discovered.globalSymbols, fallbackGlobals);
     return {
-      globalNames: configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discovered.globalSymbols)),
+      globalNames: configuredGlobalNames(mergeGlobalSymbols(configuredGlobals, discoveredGlobals)),
       searchPaths: resolveImportRoots([
         ...discovered.searchPaths,
+        ...inferredSearchPaths,
         ...resolveImportRoots(runtimeRoot),
       ]),
     };

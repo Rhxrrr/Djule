@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from djule.parser import DjuleParser, ParserError
+from djule.parser.lexer import LexerError
 from djule.parser.ast_nodes import (
     AssignStmt,
     BlockNode,
@@ -233,6 +234,33 @@ def Page():
     )
 """
         with self.assertRaises(ParserError):
+            DjuleParser.from_source(source).parse()
+
+    def test_component_attributes_accept_bare_python_expressions(self):
+        source = """
+def Page(username):
+    return (
+        <InputErr input_name=username enable_error=True initial_value=username />
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ComponentNode)
+        self.assertIsInstance(root.attributes[0].value, PythonExpr)
+        self.assertEqual(root.attributes[0].value.source, "username")
+        self.assertTrue(root.attributes[0].bare_expression)
+        self.assertEqual(root.attributes[1].value.source, "True")
+        self.assertTrue(root.attributes[1].bare_expression)
+
+    def test_html_attributes_still_reject_bare_python_expressions(self):
+        source = """
+def Page(username):
+    return (
+        <input value=username></input>
+    )
+"""
+        with self.assertRaises(LexerError):
             DjuleParser.from_source(source).parse()
 
     def test_multiline_brace_block_without_if_or_for_is_rejected(self):

@@ -40,6 +40,7 @@ class AttributeNode:
     """One markup attribute whose value is either literal text or a Python expression."""
     name: str
     value: str | PythonExpr
+    bare_expression: bool = False
     type: str = field(init=False, default="AttributeNode")
 
 

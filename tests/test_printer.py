@@ -58,6 +58,18 @@ class PrinterTests(unittest.TestCase):
         rendered = DjulePrinter().print_module(DjuleParser.from_source(source).parse())
         self.assertEqual(rendered, source)
 
+    def test_bare_component_props_round_trip(self):
+        source = textwrap.dedent(
+            """\
+            def Page(username):
+                return (
+                    <InputErr input_name=username enable_error=True></InputErr>
+                )"""
+        )
+
+        rendered = DjulePrinter().print_module(DjuleParser.from_source(source).parse())
+        self.assertEqual(rendered, source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -382,6 +382,8 @@ class DjuleLexer:
                         return
                 elif not is_self_closing:
                     tag_stack.append((name, is_component))
+                elif not tag_stack and self._next_meaningful_char_after_markup() in {"", ")", "}"}:
+                    return
                 continue
 
             if self.peek() == "{":
@@ -394,6 +396,15 @@ class DjuleLexer:
             self._lex_markup_text()
 
         raise self._error("Unterminated markup fragment", self.line, self.column)
+
+    def _next_meaningful_char_after_markup(self) -> str:
+        """Return the next non-whitespace char after the current markup boundary."""
+        lookahead = self.index
+        while lookahead < len(self.source) and self.source[lookahead] in " \t\r\n":
+            lookahead += 1
+        if lookahead >= len(self.source):
+            return ""
+        return self.source[lookahead]
 
     def _lex_markup_declaration(self) -> None:
         """Lex a raw markup declaration such as `<!doctype html>`.
@@ -448,7 +459,7 @@ class DjuleLexer:
         self._push_token(token_type, name, line, column)
 
         if not is_closing:
-            self._lex_tag_attributes(name, line, column)
+            self._lex_tag_attributes(name, line, column, allow_bare_component_expr=is_component)
 
         while not self.is_at_end() and self.peek() in " \t":
             self.advance()
@@ -466,13 +477,23 @@ class DjuleLexer:
         self.advance()
         return name, is_component, is_closing, False
 
-    def _lex_tag_attributes(self, tag_name: str, tag_line: int, tag_column: int) -> None:
+    def _lex_tag_attributes(
+        self,
+        tag_name: str,
+        tag_line: int,
+        tag_column: int,
+        *,
+        allow_bare_component_expr: bool = False,
+    ) -> None:
         """Lex all attributes for the current opening tag.
 
         Attribute names accept alphanumerics plus `_`, `-`, and `:`. Values
-        must be either quoted strings or Djule `{...}` expressions. If another
-        tag start appears before `>`, this method reports the opening tag as
-        unclosed so malformed multiline tags get a more useful error.
+        must be either quoted strings or Djule `{...}` expressions. Component
+        tags may also opt into bare Python expressions like `tone=primary` or
+        `disabled=True`, which are emitted as legacy-compatible `EXPR` tokens.
+        If another tag start appears before `>`, this method reports the
+        opening tag as unclosed so malformed multiline tags get a more useful
+        error.
         """
         while not self.is_at_end():
             while not self.is_at_end() and self.peek() in " \t\r\n":
@@ -512,8 +533,98 @@ class DjuleLexer:
                 self._lex_string()
             elif self.peek() == "{":
                 self._lex_markup_expression()
+            elif allow_bare_component_expr:
+                self._lex_bare_attribute_expression()
             else:
                 raise self._error("Expected string or {expr} attribute value", self.line, self.column)
+
+    def _lex_bare_attribute_expression(self) -> None:
+        """Lex one bare component-prop expression until the next tag delimiter.
+
+        Bare attribute expressions are intended for compact component props like
+        `enabled=True`, `tone=primary`, or `href=reverse("home")`. The lexer
+        tracks nested brackets and quoted strings so expressions containing
+        calls or collections can span internal spaces without consuming the
+        surrounding `>` or the next attribute name.
+        """
+        line, column = self.line, self.column
+        start = self.index
+        paren_depth = 0
+        bracket_depth = 0
+        string_quote = ""
+        escaped = False
+
+        while not self.is_at_end():
+            ch = self.peek()
+
+            if string_quote:
+                self.advance()
+                if escaped:
+                    escaped = False
+                    continue
+                if ch == "\\":
+                    escaped = True
+                    continue
+                if ch == string_quote:
+                    string_quote = ""
+                continue
+
+            if ch in {"'", '"'}:
+                string_quote = ch
+                self.advance()
+                continue
+
+            if ch == "(":
+                paren_depth += 1
+                self.advance()
+                continue
+            if ch == ")":
+                paren_depth = max(0, paren_depth - 1)
+                self.advance()
+                continue
+            if ch == "[":
+                bracket_depth += 1
+                self.advance()
+                continue
+            if ch == "]":
+                bracket_depth = max(0, bracket_depth - 1)
+                self.advance()
+                continue
+
+            if paren_depth == 0 and bracket_depth == 0:
+                if ch in {">", "/"}:
+                    break
+                if ch in {" ", "\t", "\r", "\n"} and self._looks_like_attribute_boundary():
+                    break
+
+            self.advance()
+
+        value = self.source[start:self.index].strip()
+        if not value:
+            raise self._error("Expected component prop expression", line, column)
+        self._push_token(TokenType.EXPR, value, line, column)
+
+    def _looks_like_attribute_boundary(self) -> bool:
+        """Return whether whitespace here is followed by another attribute-like token."""
+        lookahead = self.index
+        while lookahead < len(self.source) and self.source[lookahead] in " \t\r\n":
+            lookahead += 1
+
+        if lookahead >= len(self.source):
+            return True
+
+        next_char = self.source[lookahead]
+        if next_char in {">", "/"}:
+            return True
+        if not (next_char.isalpha() or next_char == "_"):
+            return False
+
+        cursor = lookahead + 1
+        while cursor < len(self.source) and (self.source[cursor].isalnum() or self.source[cursor] in {"_", "-", ":"}):
+            cursor += 1
+        while cursor < len(self.source) and self.source[cursor] in " \t":
+            cursor += 1
+        return cursor < len(self.source) and self.source[cursor] == "="
 
     def _lex_markup_expression(self) -> None:
         """Lex a Djule `{...}` region embedded inside markup.

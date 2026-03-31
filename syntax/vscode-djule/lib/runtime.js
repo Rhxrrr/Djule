@@ -2,6 +2,39 @@ const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
 
+const LIKELY_DJULE_ROOT_NAMES = new Set(["frontend", "templates"]);
+const LIKELY_DJULE_CHILD_NAMES = new Set([
+  "components",
+  "layouts",
+  "pages",
+  "partials",
+  "sections",
+  "shared",
+]);
+const DJANGO_FALLBACK_GLOBALS = {
+  csrf_token: {
+    detail: "Django CSRF token",
+  },
+  messages: {
+    detail: "Django messages",
+  },
+  perms: {
+    detail: "Django permissions",
+  },
+  request: {
+    detail: "Django request",
+    members: {
+      path: "str",
+      user: {
+        detail: "Django user",
+      },
+    },
+  },
+  user: {
+    detail: "Django user",
+  },
+};
+
 async function resolvePythonCommand(document, configuration) {
   const configuredCommand = normalizePythonCommand(configuration.get("pythonCommand", ""));
   if (configuredCommand) {
@@ -122,6 +155,35 @@ function resolveRuntimeRoot(document, context, configuration) {
   };
 }
 
+function inferDocumentImportRoots(document, sourceText = "") {
+  if (!document || document.uri?.scheme !== "file") {
+    return [];
+  }
+
+  return dedupePaths([
+    ...inferLikelyTemplateRoots(document.uri.fsPath),
+    ...inferImportRootsFromSource(document.uri.fsPath, sourceText),
+  ]);
+}
+
+function inferDjangoFallbackGlobals(document, configuration) {
+  if (!looksLikeDjangoProject(document, configuration)) {
+    return {};
+  }
+
+  return DJANGO_FALLBACK_GLOBALS;
+}
+
+function looksLikeDjangoProject(document, configuration) {
+  const configuredSettingsModule =
+    typeof configuration?.get === "function" ? configuration.get("djangoSettingsModule", "") : "";
+  if (typeof configuredSettingsModule === "string" && configuredSettingsModule.trim()) {
+    return true;
+  }
+
+  return Boolean(findNearestManagePy(document));
+}
+
 function listRuntimeCandidateDirectories(document) {
   const candidates = [];
 
@@ -143,6 +205,106 @@ function listRuntimeCandidateDirectories(document) {
   }
 
   return dedupePaths(candidates);
+}
+
+function inferLikelyTemplateRoots(filePath) {
+  const roots = [];
+
+  for (const directory of ancestorDirectories(path.dirname(filePath))) {
+    const baseName = path.basename(directory);
+    if (LIKELY_DJULE_ROOT_NAMES.has(baseName) || looksLikeTemplateRoot(directory)) {
+      roots.push(directory);
+    }
+  }
+
+  return roots;
+}
+
+function looksLikeTemplateRoot(directory) {
+  try {
+    const entries = fs.readdirSync(directory, { withFileTypes: true });
+    let hasDjuleFile = false;
+    let hasLikelyChildDirectory = false;
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      if (entry.isFile() && entry.name.endsWith(".djule")) {
+        hasDjuleFile = true;
+      }
+      if (entry.isDirectory() && LIKELY_DJULE_CHILD_NAMES.has(entry.name)) {
+        hasLikelyChildDirectory = true;
+      }
+      if (hasDjuleFile || hasLikelyChildDirectory) {
+        return true;
+      }
+    }
+  } catch (_error) {
+    return false;
+  }
+
+  return false;
+}
+
+function inferImportRootsFromSource(filePath, sourceText) {
+  const absoluteModules = extractAbsoluteImportModules(sourceText);
+  if (!absoluteModules.length) {
+    return [];
+  }
+
+  const roots = [];
+  for (const directory of ancestorDirectories(path.dirname(filePath))) {
+    for (const moduleName of absoluteModules) {
+      if (moduleExistsUnderRoot(directory, moduleName) || topLevelImportPathExists(directory, moduleName)) {
+        roots.push(directory);
+        break;
+      }
+    }
+  }
+
+  return roots;
+}
+
+function extractAbsoluteImportModules(sourceText) {
+  if (typeof sourceText !== "string" || !sourceText.trim()) {
+    return [];
+  }
+
+  const modules = new Set();
+  const fromImportPattern = /^\s*from\s+([A-Za-z_][\w.]*)\s+import\b/gm;
+  const importModulePattern = /^\s*import\s+([A-Za-z_][\w.]*)\b/gm;
+
+  for (const match of sourceText.matchAll(fromImportPattern)) {
+    const moduleName = match[1];
+    if (moduleName && moduleName !== "builtins") {
+      modules.add(moduleName);
+    }
+  }
+
+  for (const match of sourceText.matchAll(importModulePattern)) {
+    const moduleName = match[1];
+    if (moduleName && moduleName !== "builtins") {
+      modules.add(moduleName);
+    }
+  }
+
+  return Array.from(modules);
+}
+
+function moduleExistsUnderRoot(rootDir, moduleName) {
+  const moduleParts = moduleName.split(".");
+  const fileCandidate = path.join(rootDir, ...moduleParts) + ".djule";
+  const packageCandidate = path.join(rootDir, ...moduleParts, "__init__.djule");
+  return fs.existsSync(fileCandidate) || fs.existsSync(packageCandidate);
+}
+
+function topLevelImportPathExists(rootDir, moduleName) {
+  const topLevel = moduleName.split(".")[0];
+  if (!topLevel) {
+    return false;
+  }
+  return fs.existsSync(path.join(rootDir, topLevel));
 }
 
 function listAbsoluteDjuleModules(importRoots, modulePrefix) {
@@ -387,6 +549,22 @@ function dedupePaths(candidates) {
   return results;
 }
 
+function ancestorDirectories(startDir) {
+  const results = [];
+  let currentDir = startDir;
+
+  while (true) {
+    results.push(currentDir);
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      break;
+    }
+    currentDir = parentDir;
+  }
+
+  return results;
+}
+
 function looksLikeDjuleProjectRoot(candidate) {
   return (
     (fs.existsSync(path.join(candidate, "src", "djule", "__init__.py")) &&
@@ -414,8 +592,27 @@ function safeResolve(candidate) {
   }
 }
 
+function findNearestManagePy(document) {
+  if (!document || document.uri?.scheme !== "file") {
+    return "";
+  }
+
+  for (const directory of ancestorDirectories(path.dirname(document.uri.fsPath))) {
+    const candidate = path.join(directory, "manage.py");
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
 module.exports = {
+  findNearestManagePy,
+  inferDjangoFallbackGlobals,
+  inferDocumentImportRoots,
   listDjuleModules,
+  looksLikeDjangoProject,
   normalizeSearchPaths,
   resolveImportRoots,
   resolvePythonCommand,

@@ -9,6 +9,8 @@ const {
   resolveConfiguredGlobalMembers,
 } = require("./globals");
 const {
+  inferDjangoFallbackGlobals,
+  inferDocumentImportRoots,
   listDjuleModules,
   normalizeSearchPaths,
   resolveImportRoots,
@@ -66,19 +68,24 @@ async function provideDjuleCompletions(document, position, context, configuratio
 async function resolveGlobalSymbols(document, context, configuration, runtimeRoot) {
   const configuredGlobals = parseConfiguredGlobals(configuration);
   const fallbackRoots = resolveImportRoots(runtimeRoot);
+  const inferredRoots = inferDocumentImportRoots(document, document.getText());
+  const fallbackGlobals = parseGlobalSchema(inferDjangoFallbackGlobals(document, configuration));
 
   try {
     const discovered = await discoverDjangoSymbols(document, context, configuration, runtimeRoot);
     return {
       builtinSymbols: discovered.builtinSymbols,
-      globalSymbols: mergeGlobalSymbols(configuredGlobals, discovered.globalSymbols),
-      importRoots: resolveImportRoots([...discovered.searchPaths, ...fallbackRoots]),
+      globalSymbols: mergeGlobalSymbols(
+        configuredGlobals,
+        mergeGlobalSymbols(discovered.globalSymbols, fallbackGlobals)
+      ),
+      importRoots: resolveImportRoots([...discovered.searchPaths, ...inferredRoots, ...fallbackRoots]),
     };
   } catch (_error) {
     return {
       builtinSymbols: new Map(),
-      globalSymbols: configuredGlobals,
-      importRoots: fallbackRoots,
+      globalSymbols: mergeGlobalSymbols(configuredGlobals, fallbackGlobals),
+      importRoots: resolveImportRoots([...inferredRoots, ...fallbackRoots]),
     };
   }
 }
@@ -371,7 +378,7 @@ function buildAttributeCompletions(linePrefix, position, symbols) {
     .filter((param) => param && param !== "children")
     .map((param) => {
       const item = new vscode.CompletionItem(param, vscode.CompletionItemKind.Property);
-      item.insertText = new vscode.SnippetString(`${param}={$1}`);
+      item.insertText = new vscode.SnippetString(`${param}=$1`);
       item.detail = `Prop on ${componentName}`;
       item.range = range;
       item.filterText = param;

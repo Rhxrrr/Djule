@@ -356,7 +356,7 @@ class DjuleParser:
     def _parse_element_node(self) -> ElementNode:
         """Parse a plain HTML-like element and all of its child markup."""
         open_token = self._consume(TokenType.HTML_TAG_OPEN, "Expected HTML opening tag")
-        attributes = self._parse_attributes()
+        attributes = self._parse_attributes(allow_bare_component_expr=False)
         if self._match(TokenType.SELF_TAG_END):
             return ElementNode(tag=open_token.value, attributes=attributes, children=[], self_closing=True)
         self._consume(TokenType.TAG_END, "Expected '>' after opening tag")
@@ -372,7 +372,7 @@ class DjuleParser:
         separately, so using it as an explicit attribute is rejected here.
         """
         open_token = self._consume(TokenType.COMPONENT_TAG_OPEN, "Expected component opening tag")
-        attributes = self._parse_attributes()
+        attributes = self._parse_attributes(allow_bare_component_expr=True)
         for attribute in attributes:
             if attribute.name == "children":
                 raise self._error(
@@ -400,12 +400,13 @@ class DjuleParser:
             column=open_token.column,
         )
 
-    def _parse_attributes(self) -> list[AttributeNode]:
+    def _parse_attributes(self, *, allow_bare_component_expr: bool = False) -> list[AttributeNode]:
         """Parse a sequence of tag attributes.
 
         Attributes may take a literal string value or a braced Python
-        expression. Quoted string values may also opt into interpolation by
-        using an f-string prefix or embedded `{...}` placeholders, which are
+        expression. Component tags also accept bare Python expressions like
+        `tone=primary` and `enabled=True`. Quoted string values may opt into
+        interpolation by using embedded `{...}` placeholders, which are
         promoted to normal `PythonExpr` nodes here. The legacy single-token
         `EXPR` form is also accepted so older cached/tokenized inputs still
         parse cleanly.
@@ -414,6 +415,7 @@ class DjuleParser:
         while self._check(TokenType.ATTR_NAME):
             name = self._advance().value
             self._consume(TokenType.EQUALS, "Expected '=' after attribute name")
+            bare_expression = False
             if self._check(TokenType.STRING):
                 value = self._parse_attribute_string(self._advance())
             elif self._check(TokenType.LBRACE):
@@ -421,9 +423,10 @@ class DjuleParser:
             elif self._check(TokenType.EXPR):
                 token = self._advance()
                 value = PythonExpr(source=token.value, line=token.line, column=token.column)
+                bare_expression = allow_bare_component_expr
             else:
                 raise self._error("Expected string or {expr} attribute value")
-            attributes.append(AttributeNode(name=name, value=value))
+            attributes.append(AttributeNode(name=name, value=value, bare_expression=bare_expression))
         return attributes
 
     def _parse_attribute_string(self, token: Token) -> str | PythonExpr:

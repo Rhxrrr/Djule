@@ -316,10 +316,28 @@
           "match": "="
         },
         {
+          "include": "#strings"
+        },
+        {
           "include": "#interpolation"
         },
         {
-          "include": "#strings"
+          "include": "#constants"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#member-names"
+        },
+        {
+          "include": "#function-calls"
+        },
+        {
+          "include": "#variables"
+        },
+        {
+          "include": "#operators"
         }
       ]
     },

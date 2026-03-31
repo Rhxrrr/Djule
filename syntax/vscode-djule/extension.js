@@ -1,6 +1,7 @@
 const vscode = require("vscode");
 
 const { provideDjuleCompletions } = require("./lib/completions");
+const { provideDjuleDefinition } = require("./lib/definitions");
 const { registerDiagnostics } = require("./lib/diagnostics");
 
 function activate(context) {
@@ -18,6 +19,18 @@ function activate(context) {
       "<",
       ".",
       " "
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider(
+      { language: "djule" },
+      {
+        provideDefinition(document, position) {
+          const configuration = vscode.workspace.getConfiguration("djule", document);
+          return provideDjuleDefinition(document, position, context, configuration);
+        },
+      }
     )
   );
 }
