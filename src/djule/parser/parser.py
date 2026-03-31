@@ -34,6 +34,7 @@ from .ast_nodes import (
 from .lexer import DjuleLexer
 from .lexer import LexerError
 from .tokens import Token, TokenType
+from .tokens import STRING_PREFIX_CHARS
 
 
 @dataclass
@@ -397,15 +398,18 @@ class DjuleParser:
         """Parse a sequence of tag attributes.
 
         Attributes may take a literal string value or a braced Python
-        expression. The legacy single-token `EXPR` form is also accepted so
-        older cached/tokenized inputs still parse cleanly.
+        expression. Quoted string values may also opt into interpolation by
+        using an f-string prefix or embedded `{...}` placeholders, which are
+        promoted to normal `PythonExpr` nodes here. The legacy single-token
+        `EXPR` form is also accepted so older cached/tokenized inputs still
+        parse cleanly.
         """
         attributes = []
         while self._check(TokenType.ATTR_NAME):
             name = self._advance().value
             self._consume(TokenType.EQUALS, "Expected '=' after attribute name")
             if self._check(TokenType.STRING):
-                value: str | PythonExpr = self._advance().value
+                value = self._parse_attribute_string(self._advance())
             elif self._check(TokenType.LBRACE):
                 value = self._parse_braced_python_expr()
             elif self._check(TokenType.EXPR):
@@ -415,6 +419,81 @@ class DjuleParser:
                 raise self._error("Expected string or {expr} attribute value")
             attributes.append(AttributeNode(name=name, value=value))
         return attributes
+
+    def _parse_attribute_string(self, token: Token) -> str | PythonExpr:
+        """Parse one quoted attribute token as a literal or interpolated expression."""
+        raw_value = token.value
+
+        if self._string_token_has_python_prefix(raw_value):
+            raise ParserError(
+                message="Attribute strings cannot use Python string prefixes outside {expr}; use class={f\"...\"} or plain interpolation like class=\"... {name}\"",
+                token=token,
+                path=self.source_path,
+            )
+
+        if not self._string_token_contains_interpolation(raw_value):
+            return raw_value
+
+        if self._string_token_uses_bytes_prefix(raw_value):
+            raise ParserError(
+                message="Interpolated attribute strings do not support byte-string prefixes",
+                token=token,
+                path=self.source_path,
+            )
+
+        promoted = f"f{raw_value}"
+        self._validate_python_expression(
+            promoted,
+            token,
+            "Invalid interpolated attribute string; use {{ and }} for literal braces",
+        )
+        return PythonExpr(source=promoted, line=token.line, column=token.column)
+
+    @staticmethod
+    def _string_token_has_python_prefix(value: str) -> bool:
+        """Return whether a quoted token starts with a Python string prefix."""
+        prefix = DjuleParser._string_token_prefix(value)
+        return bool(prefix)
+
+    @staticmethod
+    def _string_token_uses_bytes_prefix(value: str) -> bool:
+        """Return whether a quoted token starts with a Python bytes prefix."""
+        prefix = DjuleParser._string_token_prefix(value)
+        return "b" in prefix.lower()
+
+    @staticmethod
+    def _string_token_prefix(value: str) -> str:
+        """Return any Python string literal prefix before the opening quote."""
+        index = 0
+        while index < len(value) and value[index] in STRING_PREFIX_CHARS:
+            index += 1
+        return value[:index]
+
+    @staticmethod
+    def _string_token_contains_interpolation(value: str) -> bool:
+        """Return whether a quoted token contains unescaped single braces.
+
+        Single `{` / `}` characters opt the string into interpolation. Doubled
+        braces remain literal, matching normal Python f-string escaping.
+        """
+        prefix = DjuleParser._string_token_prefix(value)
+        if len(value) <= len(prefix) + 1:
+            return False
+
+        content = value[len(prefix) + 1 : -1]
+        index = 0
+        while index < len(content):
+            ch = content[index]
+            if ch == "\\":
+                index += 2
+                continue
+            if ch in {"{", "}"}:
+                if index + 1 < len(content) and content[index + 1] == ch:
+                    index += 2
+                    continue
+                return True
+            index += 1
+        return False
 
     def _parse_braced_markup_node(self) -> MarkupNode:
         """Parse `{...}` inside markup as either an expression or embedded block.

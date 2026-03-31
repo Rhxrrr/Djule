@@ -19,6 +19,7 @@ from djule.parser.ast_nodes import (
     ImportFrom,
     ImportModule,
     Module,
+    PythonExpr,
     TextNode,
 )
 from tests.fixture_paths import example_path
@@ -195,6 +196,32 @@ def Page():
         self.assertIsInstance(button, ComponentNode)
         self.assertTrue(button.self_closing)
         self.assertEqual(button.children, [])
+
+    def test_interpolated_attribute_string_promotes_to_python_expr(self):
+        source = """
+def Page(button_class):
+    return (
+        <button class="btn {button_class}"></button>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ElementNode)
+        self.assertIsInstance(root.attributes[0].value, PythonExpr)
+        self.assertEqual(root.attributes[0].value.source, 'f"btn {button_class}"')
+
+    def test_prefixed_attribute_string_outside_braces_is_rejected(self):
+        source = """
+def Page(button_class):
+    return (
+        <button class=f"btn {button_class}"></button>
+    )
+"""
+        with self.assertRaises(ParserError) as context:
+            DjuleParser.from_source(source).parse()
+
+        self.assertIn("outside {expr}", str(context.exception))
 
     def test_children_attribute_is_rejected_on_component_tags(self):
         source = """
