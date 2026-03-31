@@ -73,9 +73,14 @@ class DjulePlanMixin:
         bindings: dict[str, tuple[str, object]],
     ) -> tuple[list[PlanPart], bool]:
         """Compile one component with any known prop/local bindings already applied."""
-        body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, bindings)
-        active_bindings = body_bindings if fully_flattened else bindings
-        return self._compile_markup_plan(component.return_stmt.value, active_bindings), not fully_flattened
+        previous_component_name = self._current_compiling_component_name
+        self._current_compiling_component_name = component.name
+        try:
+            body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, bindings)
+            active_bindings = body_bindings if fully_flattened else bindings
+            return self._compile_markup_plan(component.return_stmt.value, active_bindings), not fully_flattened
+        finally:
+            self._current_compiling_component_name = previous_component_name
 
     def _compile_component_body_bindings(
         self,
@@ -174,16 +179,16 @@ class DjulePlanMixin:
         """
         binding = self._binding_for_expression(source, bindings)
         if binding is None:
-            return [ExprPart(source, line=line, column=column)]
+            return [self._expr_part(source, line=line, column=column)]
 
         binding_type, value = binding
         if binding_type == "literal":
             return [StaticPart(str(self._render_expression_value(value)))]
         if binding_type == "expr":
-            return [ExprPart(str(value), line=line, column=column)]
+            return [self._expr_part(str(value), line=line, column=column)]
         if binding_type in {"children", "plan"}:
             return list(value)
-        return [ExprPart(source, line=line, column=column)]
+        return [self._expr_part(source, line=line, column=column)]
 
     def _compile_attribute_parts(
         self,
@@ -204,13 +209,13 @@ class DjulePlanMixin:
             if binding_type == "expr":
                 return [
                     StaticPart(f' {attribute.name}="'),
-                    AttrExprPart(str(value), line=attribute.value.line, column=attribute.value.column),
+                    self._attr_expr_part(str(value), line=attribute.value.line, column=attribute.value.column),
                     StaticPart('"'),
                 ]
 
         return [
             StaticPart(f' {attribute.name}="'),
-            AttrExprPart(attribute.value.source, line=attribute.value.line, column=attribute.value.column),
+            self._attr_expr_part(attribute.value.source, line=attribute.value.line, column=attribute.value.column),
             StaticPart('"'),
         ]
 
@@ -311,6 +316,8 @@ class DjulePlanMixin:
     ) -> list[PlanPart] | None:
         """Try to inline another component's compiled plan into the current one."""
         if isinstance(component, ImportedComponentRef):
+            if component.renderer._module_import_values():
+                return None
             resolved = component.renderer._resolve_component(component.component_name)
             if isinstance(resolved, ComponentDef):
                 parts, requires_runtime_body = component.renderer._compile_component_with_bindings(resolved, bindings)
@@ -392,6 +399,26 @@ class DjulePlanMixin:
         """Record that the current compiled plan depends on the given source path."""
         if self._plan_dependency_paths is not None:
             self._plan_dependency_paths.add(path.resolve())
+
+    def _expr_part(self, source: str, *, line: int = 0, column: int = 0) -> ExprPart:
+        """Build one expression plan part tagged with its source module/component."""
+        return ExprPart(
+            source,
+            line=line,
+            column=column,
+            source_path=str(self.module_path) if self.module_path is not None else None,
+            component_name=self._current_compiling_component_name,
+        )
+
+    def _attr_expr_part(self, source: str, *, line: int = 0, column: int = 0) -> AttrExprPart:
+        """Build one attribute-expression plan part tagged with its source module/component."""
+        return AttrExprPart(
+            source,
+            line=line,
+            column=column,
+            source_path=str(self.module_path) if self.module_path is not None else None,
+            component_name=self._current_compiling_component_name,
+        )
 
     @staticmethod
     def _merge_static_parts(parts: list[PlanPart]) -> list[PlanPart]:

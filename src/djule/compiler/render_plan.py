@@ -19,6 +19,8 @@ class ExprPart:
     source: str
     line: int = 0
     column: int = 0
+    source_path: str | None = None
+    component_name: str | None = None
     type: str = field(init=False, default="ExprPart")
 
 
@@ -28,6 +30,8 @@ class AttrExprPart:
     source: str
     line: int = 0
     column: int = 0
+    source_path: str | None = None
+    component_name: str | None = None
     type: str = field(init=False, default="AttrExprPart")
 
 

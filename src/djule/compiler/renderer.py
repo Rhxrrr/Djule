@@ -21,9 +21,9 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     responsibilities remain easier to reason about.
     """
 
-    CACHE_VERSION: ClassVar[int] = 10
+    CACHE_VERSION: ClassVar[int] = 11
     _parsed_module_cache: ClassVar[dict[Path, tuple[int, int, Module]]] = {}
-    _compiled_expr_cache: ClassVar[dict[str, CodeType]] = {}
+    _compiled_expr_cache: ClassVar[dict[tuple[str, str], CodeType]] = {}
     _entry_plan_cache: ClassVar[
         dict[tuple[Path, str], tuple[int, int, ComponentPlan, tuple[tuple[str, int, int], ...]]]
     ] = {}
@@ -80,4 +80,5 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         self._instance_component_plans: dict[str, ComponentPlan] = {}
         self._plan_dependency_paths: set[Path] | None = None
         self._current_component_name: str | None = None
+        self._current_compiling_component_name: str | None = None
         self._ambient_props_stack: list[dict[str, object]] = []

@@ -101,11 +101,13 @@ class DjuleRenderMixin:
         component_name: str | None = None,
         line: int = 0,
         column: int = 0,
+        source_path: str | None = None,
     ) -> str:
         """Format a runtime error with file/component/location details first."""
         context_parts = []
-        if self.module_path is not None:
-            context_parts.append(f"file '{self.module_path}'")
+        effective_source_path = source_path or (str(self.module_path) if self.module_path is not None else None)
+        if effective_source_path is not None:
+            context_parts.append(f"file '{effective_source_path}'")
         active_component_name = component_name or self._current_component_name
         if active_component_name:
             context_parts.append(f"component '{active_component_name}'")
@@ -256,12 +258,26 @@ class DjuleRenderMixin:
         if isinstance(part, ExprPart):
             return str(
                 self._render_expression_value(
-                    self._eval_python_expr(part.source, env, line=part.line, column=part.column)
+                    self._eval_python_expr(
+                        part.source,
+                        env,
+                        line=part.line,
+                        column=part.column,
+                        source_path=part.source_path,
+                        component_name=part.component_name,
+                    )
                 )
             )
 
         if isinstance(part, AttrExprPart):
-            value = self._eval_python_expr(part.source, env, line=part.line, column=part.column)
+            value = self._eval_python_expr(
+                part.source,
+                env,
+                line=part.line,
+                column=part.column,
+                source_path=part.source_path,
+                component_name=part.component_name,
+            )
             if value is None:
                 return ""
             return escape(str(value), quote=True)
@@ -470,6 +486,8 @@ class DjuleRenderMixin:
         *,
         line: int = 0,
         column: int = 0,
+        source_path: str | None = None,
+        component_name: str | None = None,
     ) -> object:
         """Evaluate a Python expression in the current Djule environment.
 
@@ -479,11 +497,12 @@ class DjuleRenderMixin:
         """
         scope = {"__builtins__": self.builtins, **env}
         try:
-            code = self._compiled_expr_cache.get(source)
+            filename = source_path or (str(self.module_path) if self.module_path is not None else "<djule>")
+            cache_key = (filename, source)
+            code = self._compiled_expr_cache.get(cache_key)
             if code is None:
-                filename = str(self.module_path) if self.module_path is not None else "<djule>"
                 code = compile(source, filename, "eval")
-                self._compiled_expr_cache[source] = code
+                self._compiled_expr_cache[cache_key] = code
             return eval(code, scope, scope)
         except Exception as exc:  # pragma: no cover
             raise RendererError(
@@ -491,5 +510,7 @@ class DjuleRenderMixin:
                     f"Failed to evaluate expression '{source}': {exc}",
                     line=line,
                     column=column,
+                    component_name=component_name,
+                    source_path=source_path,
                 )
             ) from exc

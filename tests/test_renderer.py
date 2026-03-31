@@ -206,11 +206,19 @@ def Page():
 
         payload = self.load_plan_payload("12_cache_demo.djule")
         page_plan = payload["plan"]
+        expr_path = str(example_path("12_cache_demo.djule").resolve())
         self.assertEqual(
             page_plan["parts"],
             [
                 {"type": "StaticPart", "value": '<section class="card"><h1>'},
-                {"type": "ExprPart", "source": "title", "line": 6, "column": 17},
+                {
+                    "type": "ExprPart",
+                    "source": "title",
+                    "line": 6,
+                    "column": 17,
+                    "source_path": expr_path,
+                    "component_name": "Page",
+                },
                 {
                     "type": "StaticPart",
                     "value": '</h1><p>This paragraph Different is static and should be cached to disk.</p>'
@@ -265,7 +273,17 @@ def Page():
         payload = self.load_plan_payload("13_multi_component_cache_demo.djule")
         page_plan = payload["plan"]
         self.assertEqual(len(page_plan["parts"]), 3)
-        self.assertEqual(page_plan["parts"][1], {"type": "ExprPart", "source": "user_name", "line": 17, "column": 27})
+        self.assertEqual(
+            page_plan["parts"][1],
+            {
+                "type": "ExprPart",
+                "source": "user_name",
+                "line": 17,
+                "column": 27,
+                "source_path": str(example_path("13_multi_component_cache_demo.djule").resolve()),
+                "component_name": "Page",
+            },
+        )
 
     def test_simple_helper_assignments_are_flattened_into_component_plan(self):
         self.render(
@@ -282,7 +300,17 @@ def Page():
         self.assertIn("btn btn-", button_plan["parts"][1]["source"])
         self.assertIn("variant", button_plan["parts"][1]["source"])
         self.assertEqual(button_plan["parts"][2], {"type": "StaticPart", "value": '">'})
-        self.assertEqual(button_plan["parts"][3], {"type": "ExprPart", "source": "children", "line": 13, "column": 13})
+        self.assertEqual(
+            button_plan["parts"][3],
+            {
+                "type": "ExprPart",
+                "source": "children",
+                "line": 13,
+                "column": 13,
+                "source_path": str(example_path("components/ui.djule").resolve()),
+                "component_name": "Button",
+            },
+        )
         self.assertEqual(button_plan["parts"][4], {"type": "StaticPart", "value": "</button>"})
 
     def test_page_render_only_persists_the_entry_component_plan(self):
@@ -628,6 +656,73 @@ def Page():
                 renderer.render(ambient_props={"csrf_token": "token-123"}),
                 "<main><form>token-123</form></main>",
             )
+
+    def test_imported_component_keeps_its_builtin_import_scope(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (root / "page.djule").write_text(
+                """from components.layout import LoginDocument
+
+def Page():
+    return (
+        <LoginDocument></LoginDocument>
+    )
+"""
+            )
+            (components_dir / "layout.djule").write_text(
+                """from builtins import static
+
+def LoginDocument():
+    return (
+        <main data-icon={static("svg/wheelify.svg")}></main>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(
+                root / "page.djule",
+                search_paths=[root],
+                importables={"static": lambda path: f"/static/{path}"},
+            )
+            self.assertEqual(
+                renderer.render(),
+                '<main data-icon="/static/svg/wheelify.svg"></main>',
+            )
+
+    def test_inlined_imported_component_error_uses_imported_file_context(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+            layout_path = components_dir / "layout.djule"
+
+            (root / "page.djule").write_text(
+                """from components.layout import LoginDocument
+
+def Page():
+    return (
+        <LoginDocument></LoginDocument>
+    )
+"""
+            )
+            layout_path.write_text(
+                """def LoginDocument():
+    return (
+        <main>{missing_name}</main>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            with self.assertRaises(RendererError) as ctx:
+                renderer.render()
+
+        message = str(ctx.exception)
+        self.assertTrue(message.startswith(f"file '{layout_path.resolve()}', component 'LoginDocument', line 3, column 15:"))
+        self.assertIn("Failed to evaluate expression 'missing_name'", message)
 
     def test_virtual_builtins_module_exposes_importable_helpers(self):
         source = """from builtins import static
