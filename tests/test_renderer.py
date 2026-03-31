@@ -111,6 +111,19 @@ class RendererTests(unittest.TestCase):
             "<main>hello</main>",
         )
 
+    def test_interpolated_attribute_string_renders_dynamic_value(self):
+        source = """def Page(button_class):
+    return (
+        <button class="btn {button_class}"></button>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"button_class": "primary"}),
+            '<button class="btn primary"></button>',
+        )
+
     def test_self_closing_html_and_component_tags_render(self):
         source = """def Button(variant, children):
     return (
