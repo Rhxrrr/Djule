@@ -574,6 +574,78 @@ def Page(username):
         html = renderer.render(props={"username": "rhxrr"})
         self.assertEqual(html, '<label data-name="rhxrr" data-error="True" data-value="rhxrr"></label>')
 
+    def test_imported_component_interpolated_attribute_string_sees_local_helper_bindings(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components" / "inputs"
+            pages_dir = root / "pages"
+            components_dir.mkdir(parents=True)
+            pages_dir.mkdir()
+
+            (components_dir / "InputErr.djule").write_text(
+                """def InputErr(input_style):
+    input_style_classes = {"transparent": "border-primary-dark-100 bg-transparent focus:border-primary-light-100"}
+
+    return (
+        <input class="w-full rounded-large border-2 p-responsive-100 outline-none {input_style_classes[input_style]}"></input>
+    )
+"""
+            )
+            (pages_dir / "login.djule").write_text(
+                """from components.inputs.InputErr import InputErr
+
+def Page():
+    return (
+        <InputErr input_style="transparent"></InputErr>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(pages_dir / "login.djule", search_paths=[root])
+            html = renderer.render()
+
+        self.assertEqual(
+            html,
+            '<input class="w-full rounded-large border-2 p-responsive-100 outline-none border-primary-dark-100 bg-transparent focus:border-primary-light-100"></input>',
+        )
+
+    def test_imported_component_interpolated_attribute_string_sees_multiline_local_helper_bindings(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components" / "inputs"
+            pages_dir = root / "pages"
+            components_dir.mkdir(parents=True)
+            pages_dir.mkdir()
+
+            (components_dir / "InputErr.djule").write_text(
+                """def InputErr(input_style):
+    input_style_classes = {
+        "transparent": "border-primary-dark-100 bg-transparent focus:border-primary-light-100"
+    }
+
+    return (
+        <input class="w-full rounded-large border-2 p-responsive-100 outline-none {input_style_classes[input_style]}"></input>
+    )
+"""
+            )
+            (pages_dir / "login.djule").write_text(
+                """from components.inputs.InputErr import InputErr
+
+def Page():
+    return (
+        <InputErr input_style="transparent"></InputErr>
+    )
+"""
+            )
+
+            renderer = DjuleRenderer.from_file(pages_dir / "login.djule", search_paths=[root])
+            html = renderer.render()
+
+        self.assertEqual(
+            html,
+            '<input class="w-full rounded-large border-2 p-responsive-100 outline-none border-primary-dark-100 bg-transparent focus:border-primary-light-100"></input>',
+        )
+
     def test_nested_content_requires_children_param(self):
         source = """
 def Icon(name):

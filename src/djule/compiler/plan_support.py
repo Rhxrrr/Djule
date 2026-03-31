@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import textwrap
 from html import escape
 
 from djule.compiler.render_plan import AttrExprPart, ComponentPlan, ExprPart, NodePart, PlanPart, StaticPart
@@ -200,7 +201,7 @@ class DjulePlanMixin:
         become `ExprPart`, and bound child/plan fragments are spliced directly
         into the surrounding part list.
         """
-        binding = self._binding_for_expression(source, bindings)
+        binding = self._resolved_expression_binding(source, bindings)
         if binding is None:
             return [self._expr_part(source, line=line, column=column)]
 
@@ -223,7 +224,7 @@ class DjulePlanMixin:
             literal_value = ast.literal_eval(attribute.value)
             return [StaticPart(f' {attribute.name}="{escape("" if literal_value is None else str(literal_value), quote=True)}"')]
 
-        binding = self._binding_for_expression(attribute.value.source, bindings)
+        binding = self._resolved_expression_binding(attribute.value.source, bindings)
         if binding is not None:
             binding_type, value = binding
             if binding_type == "literal":
@@ -298,7 +299,7 @@ class DjulePlanMixin:
 
         for attribute in node.attributes:
             if isinstance(attribute.value, PythonExpr):
-                binding = self._binding_for_expression(attribute.value.source, bindings)
+                binding = self._resolved_expression_binding(attribute.value.source, bindings)
                 if binding is not None:
                     resolved[attribute.name] = binding
                 else:
@@ -381,6 +382,29 @@ class DjulePlanMixin:
         return None
 
     @classmethod
+    def _resolved_expression_binding(
+        cls,
+        source: str,
+        bindings: dict[str, tuple[str, object]],
+    ) -> tuple[str, object] | None:
+        """Resolve one expression to a direct binding or a rewritten expression.
+
+        Simple identifier expressions still use the fastest direct binding path.
+        More complex expressions, including interpolated attribute strings that
+        were promoted to f-strings, are rewritten through the normal binding
+        substitution logic so local helper assignments remain visible when a
+        component gets inlined or precompiled.
+        """
+        binding = cls._binding_for_expression(source, bindings)
+        if binding is not None:
+            return binding
+
+        rewritten = cls._rewrite_python_expr(source, bindings)
+        if rewritten != source:
+            return ("expr", rewritten)
+        return None
+
+    @classmethod
     def _rewrite_python_expr(
         cls,
         source: str,
@@ -392,8 +416,10 @@ class DjulePlanMixin:
         simple helper assignments can be folded into later dynamic expressions.
         If parsing or unparsing fails, the original source is preserved.
         """
+        normalized_source = cls._normalize_python_expr_source(source)
+
         try:
-            tree = ast.parse(source, mode="eval")
+            tree = ast.parse(normalized_source, mode="eval")
         except SyntaxError:
             return source
 
@@ -408,7 +434,8 @@ class DjulePlanMixin:
 
                 binding_type, value = binding
                 if binding_type == "expr":
-                    replacement = ast.parse(str(value), mode="eval").body
+                    replacement_source = DjulePlanMixin._normalize_python_expr_source(str(value))
+                    replacement = ast.parse(replacement_source, mode="eval").body
                     return ast.copy_location(copy.deepcopy(replacement), node)
                 if binding_type == "literal":
                     replacement = ast.parse(repr(value), mode="eval").body
@@ -421,6 +448,13 @@ class DjulePlanMixin:
             return ast.unparse(rewritten)
         except Exception:
             return source
+
+    @staticmethod
+    def _normalize_python_expr_source(source: str) -> str:
+        """Normalize multiline expression source before reparsing with Python AST."""
+        if "\n" not in source:
+            return source.strip()
+        return textwrap.dedent(source).strip()
 
     def _track_plan_dependency(self, path: Path) -> None:
         """Record that the current compiled plan depends on the given source path."""
