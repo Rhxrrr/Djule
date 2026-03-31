@@ -79,20 +79,42 @@
           "end": "$",
           "patterns": [
             {
+              "name": "meta.import.source.djule",
+              "begin": "(?<=\\bfrom\\s)",
+              "end": "(?=\\s+import\\b)",
+              "patterns": [
+                {
+                  "name": "entity.name.namespace.djule",
+                  "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+                },
+                {
+                  "name": "punctuation.separator.namespace.djule",
+                  "match": "\\."
+                }
+              ]
+            },
+            {
               "name": "keyword.control.import.djule",
               "match": "\\bimport\\b"
             },
             {
-              "name": "entity.name.type.class.djule",
-              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
-            },
-            {
-              "name": "punctuation.separator.namespace.djule",
-              "match": "\\."
-            },
-            {
-              "name": "punctuation.separator.comma.djule",
-              "match": ","
+              "name": "meta.import.names.djule",
+              "begin": "(?<=\\bimport\\s)",
+              "end": "$",
+              "patterns": [
+                {
+                  "name": "entity.name.type.class.djule",
+                  "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+                },
+                {
+                  "name": "support.function.djule",
+                  "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+                },
+                {
+                  "name": "punctuation.separator.comma.djule",
+                  "match": ","
+                }
+              ]
             }
           ]
         }
