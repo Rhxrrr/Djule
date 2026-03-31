@@ -1,6 +1,6 @@
 # Djule VS Code Language Support
 
-This extension provides syntax highlighting and live syntax diagnostics for `.djule` files.
+This extension provides syntax highlighting, diagnostics, autocomplete, and component navigation for `.djule` files.
 
 ## Included
 - `.djule` language registration
@@ -17,8 +17,13 @@ This extension provides syntax highlighting and live syntax diagnostics for `.dj
   - `{expr}` interpolation
   - strings, numbers, and basic punctuation
 
-## Current Goal
-Make the v1 examples readable in VS Code before building parser-aware semantic highlighting.
+## Version 2
+Version 2 turns the extension into a practical Djule authoring workflow with:
+- live lexer/parser diagnostics
+- Django-aware globals and builtin tag discovery
+- completion dropdowns for imports, components, props, globals, and snippets
+- Ctrl/Cmd-click component navigation
+- improved handling for self-closing tags, multiline params, and interpolated expressions
 
 ## Install Locally
 1. Open this folder in VS Code and run it in an Extension Development Host.
