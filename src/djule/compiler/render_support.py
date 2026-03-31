@@ -177,8 +177,20 @@ class DjuleRenderMixin:
                 )
             )
 
-        if "children" in component.params and "children" not in env:
-            env["children"] = SafeHtml("")
+        for name in component.params:
+            if name in env:
+                continue
+            default_expr = component.defaults.get(name)
+            if default_expr is not None:
+                env[name] = self._eval_python_expr(
+                    default_expr.source,
+                    env,
+                    line=default_expr.line,
+                    column=default_expr.column,
+                )
+                continue
+            if name == "children":
+                env["children"] = SafeHtml("")
 
         missing = [name for name in component.params if name not in env]
         if missing:

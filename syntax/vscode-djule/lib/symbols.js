@@ -77,10 +77,7 @@ function extractComponentSignatures(source) {
   const components = new Map();
   for (const match of source.matchAll(COMPONENT_DEF_RE)) {
     const name = match[1];
-    const params = match[2]
-      .split(",")
-      .map((param) => param.trim())
-      .filter(Boolean);
+    const params = parseComponentParamNames(match[2]);
     components.set(name, params);
   }
   return components;
@@ -122,16 +119,106 @@ function componentContextAtPosition(document, position, source) {
 
     return {
       name: match[1],
-      params: match[2]
-        .split(",")
-        .map((param) => param.trim())
-        .filter(Boolean),
+      params: parseComponentParamNames(match[2]),
       bodyStartOffset: startOffset,
       endOffset,
     };
   }
 
   return null;
+}
+
+function parseComponentParamNames(rawParams) {
+  const params = [];
+
+  for (const entry of splitTopLevelParams(rawParams)) {
+    const name = extractParamName(entry);
+    if (name) {
+      params.push(name);
+    }
+  }
+
+  return params;
+}
+
+function splitTopLevelParams(rawParams) {
+  const entries = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote = "";
+  let escaped = false;
+
+  for (const ch of rawParams) {
+    current += ch;
+
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === quote) {
+        quote = "";
+      }
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+
+    if (ch === "(") {
+      parenDepth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (ch === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (ch === "]") {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+    if (ch === "{") {
+      braceDepth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+
+    if (ch === "," && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      entries.push(current.slice(0, -1).trim());
+      current = "";
+    }
+  }
+
+  if (current.trim()) {
+    entries.push(current.trim());
+  }
+
+  return entries.filter(Boolean);
+}
+
+function extractParamName(entry) {
+  const trimmed = entry.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+  return match ? match[1] : "";
 }
 
 function extractImportedComponents(document, source, importRoots) {

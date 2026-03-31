@@ -153,6 +153,7 @@ class ComponentDef:
     params: list[str]
     body: list[Statement]
     return_stmt: ReturnStmt
+    defaults: dict[str, PythonExpr] = field(default_factory=dict)
     type: str = field(init=False, default="ComponentDef")
 
 

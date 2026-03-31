@@ -46,6 +46,18 @@ class PrinterTests(unittest.TestCase):
         self.assertIn('f"Hello {user.username}"', rendered)
         self.assertIn("<p>Your account is active.</p>", rendered)
 
+    def test_component_defaults_round_trip(self):
+        source = textwrap.dedent(
+            """\
+            def Button(label="Click me", tone="primary"):
+                return (
+                    <button class={tone}>{label}</button>
+                )"""
+        )
+
+        rendered = DjulePrinter().print_module(DjuleParser.from_source(source).parse())
+        self.assertEqual(rendered, source)
+
 
 if __name__ == "__main__":
     unittest.main()

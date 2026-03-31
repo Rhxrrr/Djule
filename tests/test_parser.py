@@ -276,6 +276,21 @@ def LoginDocument(
             ["doctype_html", "title", "description", "children"],
         )
 
+    def test_component_params_with_defaults_parse(self):
+        source = """
+def Button(label="Click me", tone="primary", children=None):
+    return (
+        <button>{label}</button>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        component = module.components[0]
+        self.assertEqual(component.params, ["label", "tone", "children"])
+        self.assertEqual(component.defaults["label"].source, '"Click me"')
+        self.assertEqual(component.defaults["tone"].source, '"primary"')
+        self.assertEqual(component.defaults["children"].source, "None")
+
 
 if __name__ == "__main__":
     unittest.main()

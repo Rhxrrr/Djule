@@ -216,7 +216,32 @@
           "patterns": [
             {
               "name": "variable.parameter.djule",
-              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+              "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:=|,|\\)))"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#constants"
+            },
+            {
+              "include": "#member-names"
+            },
+            {
+              "include": "#function-calls"
+            },
+            {
+              "include": "#variables"
+            },
+            {
+              "include": "#operators"
+            },
+            {
+              "name": "keyword.operator.assignment.djule",
+              "match": "="
             },
             {
               "name": "punctuation.separator.comma.djule",

@@ -200,8 +200,28 @@ class DjuleImportMixin:
                 f"Component '{component_name}' received nested content, but it does not declare a 'children' prop"
             )
 
-    @staticmethod
-    def _component_accepts_children(component) -> bool:
+    def _component_has_default_prop(self, component, prop_name: str) -> bool:
+        """Return whether a component can omit one prop because it has a default."""
+        if isinstance(component, ImportedComponentRef):
+            resolved = component.renderer._resolve_component(component.component_name)
+            if resolved is None:
+                return False
+            return component.renderer._component_has_default_prop(resolved, prop_name)
+
+        if isinstance(component, ComponentDef):
+            return prop_name in component.defaults
+
+        try:
+            signature = inspect.signature(component)
+        except (TypeError, ValueError):
+            return False
+
+        parameter = signature.parameters.get(prop_name)
+        if parameter is None:
+            return False
+        return parameter.default is not inspect.Parameter.empty
+
+    def _component_accepts_children(self, component) -> bool:
         """Return whether a component target can legally receive nested content.
 
         Imported Djule components are resolved recursively. Plain Python callables

@@ -238,7 +238,11 @@ class DjuleAnalyzer:
     def _analyze_component(self, component: ComponentDef, base_scope: set[str]) -> None:
         """Analyze one component body and its returned markup with a seeded scope."""
         scope = set(base_scope)
-        scope.update(component.params)
+        for name in component.params:
+            default_expr = component.defaults.get(name)
+            if default_expr is not None:
+                self._check_python_expr(default_expr, scope)
+            scope.add(name)
         scope = self._analyze_statements(component.body, scope)
         self._analyze_markup_node(component.return_stmt.value, scope)
 

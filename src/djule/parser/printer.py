@@ -63,7 +63,10 @@ class DjulePrinter:
 
     def _print_component(self, node: ComponentDef) -> list[str]:
         """Render a component definition, including body statements and return markup."""
-        params = ", ".join(node.params)
+        params = ", ".join(
+            f"{name}={node.defaults[name].source}" if name in node.defaults else name
+            for name in node.params
+        )
         lines = [f"def {node.name}({params}):"]
 
         for statement in node.body:
