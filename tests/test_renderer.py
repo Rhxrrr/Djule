@@ -725,6 +725,55 @@ def Page():
             second_html = second_renderer.render()
             self.assertIn('class="card updated"', second_html)
 
+    def test_transitive_imported_component_change_invalidates_cached_page_plan(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "Input.djule").write_text(
+                """def Input():
+    return (
+        <input class="old"></input>
+    )
+"""
+            )
+            (components_dir / "InputErr.djule").write_text(
+                """from components.Input import Input
+
+def InputErr():
+    return (
+        <label><Input></Input></label>
+    )
+"""
+            )
+            (root / "page.djule").write_text(
+                """from components.InputErr import InputErr
+
+def Page():
+    return (
+        <main><InputErr></InputErr></main>
+    )
+"""
+            )
+
+            first_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            first_html = first_renderer.render()
+            self.assertIn('class="old"', first_html)
+
+            time.sleep(0.01)
+            (components_dir / "Input.djule").write_text(
+                """def Input():
+    return (
+        <input class="new"></input>
+    )
+"""
+            )
+
+            second_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
+            second_html = second_renderer.render()
+            self.assertIn('class="new"', second_html)
+
     def test_expression_failure_includes_runtime_context(self):
         source = """def Page(user):
     return (
@@ -806,6 +855,28 @@ def Page():
                 renderer.render(ambient_props={"csrf_token": "token-123"}),
                 "<main><form>token-123</form></main>",
             )
+
+    def test_flattened_body_assignments_still_exist_inside_runtime_blocks(self):
+        source = """def InputErr(input_style, enable_error):
+    styles = {
+        "transparent": "border-primary-dark-100 bg-transparent"
+    }
+
+    return (
+        <label>
+            {
+                if enable_error:
+                    <input class={"field " + styles[input_style]} />
+            }
+        </label>
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"input_style": "transparent", "enable_error": True}),
+            '<label><input class="field border-primary-dark-100 bg-transparent" /></label>',
+        )
 
     def test_imported_component_keeps_its_builtin_import_scope(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

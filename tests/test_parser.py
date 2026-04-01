@@ -319,6 +319,22 @@ def Button(label="Click me", tone="primary", children=None):
         self.assertEqual(component.defaults["tone"].source, '"primary"')
         self.assertEqual(component.defaults["children"].source, "None")
 
+    def test_blank_line_after_component_signature_is_allowed(self):
+        source = """
+def InputErr():
+
+    styles = {"transparent": "border"}
+    return (
+        <input class={styles["transparent"]} />
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        component = module.components[0]
+        self.assertEqual(component.name, "InputErr")
+        self.assertEqual(len(component.body), 1)
+        self.assertIsInstance(component.body[0], AssignStmt)
+
 
 if __name__ == "__main__":
     unittest.main()

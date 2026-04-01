@@ -188,8 +188,10 @@ class DjuleParser:
 
         self._consume(TokenType.RPAREN, "Expected ')' after parameters")
         self._consume(TokenType.COLON, "Expected ':' after component signature")
-        self._consume(TokenType.NEWLINE, "Expected newline after component signature")
-        self._consume(TokenType.INDENT, "Expected indented component body")
+        self._consume_indented_block_start(
+            newline_message="Expected newline after component signature",
+            indent_message="Expected indented component body",
+        )
 
         body = self._parse_statements_until(TokenType.RETURN)
         return_stmt = self._parse_return_stmt()
@@ -249,8 +251,10 @@ class DjuleParser:
         self._consume(TokenType.IF, "Expected 'if'")
         test = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after if condition")
-        self._consume(TokenType.NEWLINE, "Expected newline after if condition")
-        self._consume(TokenType.INDENT, "Expected indented if body")
+        self._consume_indented_block_start(
+            newline_message="Expected newline after if condition",
+            indent_message="Expected indented if body",
+        )
 
         body = self._parse_block_statements()
 
@@ -258,8 +262,10 @@ class DjuleParser:
         self._skip_newlines()
         if self._match(TokenType.ELSE):
             self._consume(TokenType.COLON, "Expected ':' after else")
-            self._consume(TokenType.NEWLINE, "Expected newline after else")
-            self._consume(TokenType.INDENT, "Expected indented else body")
+            self._consume_indented_block_start(
+                newline_message="Expected newline after else",
+                indent_message="Expected indented else body",
+            )
             orelse = self._parse_block_statements()
 
         return IfStmt(test=test, body=body, orelse=orelse)
@@ -279,8 +285,10 @@ class DjuleParser:
         self._consume(TokenType.IN, "Expected 'in' in for loop")
         iter_expr = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after for loop")
-        self._consume(TokenType.NEWLINE, "Expected newline after for loop")
-        self._consume(TokenType.INDENT, "Expected indented for body")
+        self._consume_indented_block_start(
+            newline_message="Expected newline after for loop",
+            indent_message="Expected indented for body",
+        )
 
         body = self._parse_block_statements()
         return ForStmt(target=target, iter=iter_expr, body=body)
@@ -676,16 +684,20 @@ class DjuleParser:
         self._consume(TokenType.IF, "Expected 'if'")
         test = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after if condition")
-        self._consume(TokenType.NEWLINE, "Expected newline after if condition")
-        self._consume(TokenType.INDENT, "Expected indented embedded if body")
+        self._consume_indented_block_start(
+            newline_message="Expected newline after if condition",
+            indent_message="Expected indented embedded if body",
+        )
         body = self._parse_embedded_block_items()
 
         orelse: list[BlockItem] = []
         self._skip_newlines()
         if self._match(TokenType.ELSE):
             self._consume(TokenType.COLON, "Expected ':' after else")
-            self._consume(TokenType.NEWLINE, "Expected newline after else")
-            self._consume(TokenType.INDENT, "Expected indented embedded else body")
+            self._consume_indented_block_start(
+                newline_message="Expected newline after else",
+                indent_message="Expected indented embedded else body",
+            )
             orelse = self._parse_embedded_block_items()
 
         return EmbeddedIfNode(test=test, body=body, orelse=orelse)
@@ -700,10 +712,18 @@ class DjuleParser:
         self._consume(TokenType.IN, "Expected 'in' in embedded for loop")
         iter_expr = self._parse_python_expr_until(TokenType.COLON)
         self._consume(TokenType.COLON, "Expected ':' after embedded for loop")
-        self._consume(TokenType.NEWLINE, "Expected newline after embedded for loop")
-        self._consume(TokenType.INDENT, "Expected indented embedded for body")
+        self._consume_indented_block_start(
+            newline_message="Expected newline after embedded for loop",
+            indent_message="Expected indented embedded for body",
+        )
         body = self._parse_embedded_block_items()
         return EmbeddedForNode(target=target, iter=iter_expr, body=body)
+
+    def _consume_indented_block_start(self, *, newline_message: str, indent_message: str) -> None:
+        """Consume a block-opening newline and allow blank lines before its indent."""
+        self._consume(TokenType.NEWLINE, newline_message)
+        self._skip_newlines()
+        self._consume(TokenType.INDENT, indent_message)
 
     def _parse_embedded_expr_node(self) -> EmbeddedExprNode:
         """Parse a bare expression line inside an embedded block.

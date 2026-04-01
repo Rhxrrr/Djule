@@ -104,6 +104,19 @@ class ParserCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout), {"ok": True, "diagnostics": []})
 
+    def test_check_json_accepts_blank_line_after_component_signature(self):
+        source = """def Page():
+
+    title = "Hello"
+    return (
+        <main>{title}</main>
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=source)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {"ok": True, "diagnostics": []})
+
     def test_check_json_reports_unclosed_opening_tag_instead_of_attribute_error(self):
         invalid_source = """from examples.components.ui import Button, Card
 
@@ -222,6 +235,66 @@ def Page():
         self.assertEqual(payload["diagnostics"][0]["code"], "semantic.unresolved-import-name")
         self.assertIn("WheelifyLogo", payload["diagnostics"][0]["message"])
         self.assertIn(".BrandLogo", payload["diagnostics"][0]["message"])
+
+    def test_check_json_reports_missing_required_component_props(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components" / "inputs"
+            components_dir.mkdir(parents=True)
+            (components_dir / "Input.djule").write_text(
+                """def Input(type, name, value, placeholder, autocomplete, style="transparent", className):
+    return (
+        <input
+            type={type}
+            name={name}
+            value={value}
+            placeholder={placeholder}
+            autocomplete={autocomplete}
+            class={className}
+        />
+    )
+"""
+            )
+            page_path = root / "page.djule"
+            page_path.write_text(
+                """from .components.inputs.Input import Input
+
+def Page():
+    return (
+        <Input
+            type="text"
+            name="username"
+            value=""
+            placeholder="Username"
+            autocomplete="username"
+        />
+    )
+"""
+            )
+
+            result = self.run_cli("check-json", str(page_path))
+
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["diagnostics"][0]["code"], "semantic.missing-prop")
+        self.assertIn("className", payload["diagnostics"][0]["message"])
+
+    def test_check_json_allows_omitting_component_props_with_defaults(self):
+        source = """def Input(type, className=""):
+    return (
+        <input type={type} class={className} />
+    )
+
+def Page():
+    return (
+        <Input type="text" />
+    )
+"""
+        result = self.run_cli("check-json", "-", stdin=source)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout), {"ok": True, "diagnostics": []})
 
     def test_check_json_reports_real_file_path_for_file_backed_parser_errors(self):
         invalid_path = ROOT / "tests" / "fixtures" / "tmp_invalid_for_cli.djule"

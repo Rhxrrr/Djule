@@ -72,7 +72,10 @@ class DjuleAnalyzer:
         self.diagnostics: list[SemanticDiagnostic] = []
         self.document_path: Path | None = None
         self.imported_module_exports: dict[Path, set[str] | None] = {}
+        self.imported_modules: dict[Path, Module | None] = {}
         self.search_paths: list[Path] = []
+        self.local_components: dict[str, ComponentDef] = {}
+        self.import_nodes: list[ImportFrom | ImportModule] = []
 
     def analyze(
         self,
@@ -92,6 +95,8 @@ class DjuleAnalyzer:
         self.search_paths = [
             Path(path).resolve() for path in (search_paths or self._default_search_paths())
         ]
+        self.local_components = {component.name: component for component in module.components}
+        self.import_nodes = list(module.imports)
         self._analyze_imports(module.imports)
 
         module_names = {component.name for component in module.components}
@@ -166,19 +171,29 @@ class DjuleAnalyzer:
 
     def _module_exported_names(self, module_path: Path) -> set[str] | None:
         """Return component names defined by one imported Djule module."""
+        module = self._load_imported_module(module_path)
+        if module is None:
+            return None
+
+        exported_names = {component.name for component in module.components}
+        self.imported_module_exports[module_path.resolve()] = exported_names
+        return exported_names
+
+    def _load_imported_module(self, module_path: Path) -> Module | None:
+        """Load and cache one imported Djule module for deeper semantic checks."""
         resolved_path = module_path.resolve()
-        if resolved_path in self.imported_module_exports:
-            return self.imported_module_exports[resolved_path]
+        if resolved_path in self.imported_modules:
+            return self.imported_modules[resolved_path]
 
         try:
             module = DjuleParser.from_file(resolved_path).parse()
         except (LexerError, OSError, ParserError):
+            self.imported_modules[resolved_path] = None
             self.imported_module_exports[resolved_path] = None
             return None
 
-        exported_names = {component.name for component in module.components}
-        self.imported_module_exports[resolved_path] = exported_names
-        return exported_names
+        self.imported_modules[resolved_path] = module
+        return module
 
     def _resolve_absolute_import(self, module_name: str) -> Path | None:
         """Resolve an absolute Djule module import to a file path if it exists."""
@@ -310,6 +325,7 @@ class DjuleAnalyzer:
 
         if isinstance(node, ComponentNode):
             self._check_component_reference(node, current)
+            self._check_component_props(node)
             current = self._analyze_attributes(node.attributes, current)
             for child in node.children:
                 current = self._analyze_markup_node(child, current)
@@ -370,6 +386,77 @@ class DjuleAnalyzer:
                 code="semantic.undefined-component",
             )
         )
+
+    def _check_component_props(self, node: ComponentNode) -> None:
+        """Report missing required props for component usages when the target is known."""
+        component = self._resolve_component_def(node.name)
+        if component is None:
+            return
+
+        provided = {attribute.name for attribute in node.attributes}
+        if node.children:
+            provided.add("children")
+
+        missing = [
+            name
+            for name in component.params
+            if name != "children" and name not in provided and name not in component.defaults
+        ]
+        if not missing:
+            return
+
+        start_column = node.column + 1 if node.column > 0 else 1
+        self.diagnostics.append(
+            SemanticDiagnostic(
+                message=f"Component '{node.name}' is missing required prop(s): {', '.join(missing)}",
+                line=node.line or 1,
+                column=start_column,
+                end_column=start_column + len(node.name),
+                code="semantic.missing-prop",
+            )
+        )
+
+    def _resolve_component_def(self, component_name: str) -> ComponentDef | None:
+        """Resolve one component tag name to a known Djule component definition when possible."""
+        local = self.local_components.get(component_name)
+        if local is not None:
+            return local
+
+        for import_node in self.import_nodes:
+            if import_node.module == "builtins":
+                continue
+
+            if isinstance(import_node, ImportFrom):
+                if component_name not in import_node.names:
+                    continue
+                module_path = self._resolve_import_path(import_node.module)
+                if module_path is None:
+                    return None
+                module = self._load_imported_module(module_path)
+                if module is None:
+                    return None
+                for component in module.components:
+                    if component.name == component_name:
+                        return component
+                return None
+
+            namespace = import_node.alias or import_node.module
+            prefix = f"{namespace}."
+            if not component_name.startswith(prefix):
+                continue
+            exported_name = component_name[len(prefix):]
+            module_path = self._resolve_import_path(import_node.module)
+            if module_path is None:
+                return None
+            module = self._load_imported_module(module_path)
+            if module is None:
+                return None
+            for component in module.components:
+                if component.name == exported_name:
+                    return component
+            return None
+
+        return None
 
     def _check_expression_source(self, source: str, line: int, column: int, scope: set[str]) -> None:
         """Parse expression source and report any undefined loaded names.

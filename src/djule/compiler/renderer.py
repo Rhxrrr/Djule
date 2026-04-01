@@ -21,7 +21,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     responsibilities remain easier to reason about.
     """
 
-    CACHE_VERSION: ClassVar[int] = 12
+    CACHE_VERSION: ClassVar[int] = 13
     _parsed_module_cache: ClassVar[dict[Path, tuple[int, int, Module]]] = {}
     _compiled_expr_cache: ClassVar[dict[tuple[str, str], CodeType]] = {}
     _entry_plan_cache: ClassVar[

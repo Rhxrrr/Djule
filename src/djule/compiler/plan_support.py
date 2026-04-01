@@ -80,7 +80,11 @@ class DjulePlanMixin:
             initial_bindings = self._apply_component_default_bindings(component, bindings)
             body_bindings, fully_flattened = self._compile_component_body_bindings(component.body, initial_bindings)
             active_bindings = body_bindings if fully_flattened else initial_bindings
-            return self._compile_markup_plan(component.return_stmt.value, active_bindings), not fully_flattened
+            parts = self._compile_markup_plan(component.return_stmt.value, active_bindings)
+            requires_runtime_body = (not fully_flattened) or (
+                bool(component.body) and self._plan_parts_require_component_scope(parts)
+            )
+            return parts, requires_runtime_body
         finally:
             self._current_compiling_component_name = previous_component_name
 
@@ -280,7 +284,7 @@ class DjulePlanMixin:
             or not isinstance(component, ComponentDef)
             or bool(component.body)
         ):
-            rendered = self._render_resolved_component(node.name, component, static_props)
+            rendered = self._render_resolved_component_with_dependency_tracking(node.name, component, static_props)
             return [StaticPart(str(rendered))]
 
         inlined = self._try_inline_component_plan(component, prop_bindings)
@@ -346,11 +350,12 @@ class DjulePlanMixin:
         if isinstance(component, ImportedComponentRef):
             if component.renderer._module_import_values():
                 return None
-            resolved = component.renderer._resolve_component(component.component_name)
-            if isinstance(resolved, ComponentDef):
-                parts, requires_runtime_body = component.renderer._compile_component_with_bindings(resolved, bindings)
-                if not requires_runtime_body and not self._plan_parts_require_component_scope(parts):
-                    return parts
+            with self._shared_imported_plan_dependencies(component.renderer):
+                resolved = component.renderer._resolve_component(component.component_name)
+                if isinstance(resolved, ComponentDef):
+                    parts, requires_runtime_body = component.renderer._compile_component_with_bindings(resolved, bindings)
+                    if not requires_runtime_body and not self._plan_parts_require_component_scope(parts):
+                        return parts
             return None
 
         if isinstance(component, ComponentDef):
@@ -460,6 +465,35 @@ class DjulePlanMixin:
         """Record that the current compiled plan depends on the given source path."""
         if self._plan_dependency_paths is not None:
             self._plan_dependency_paths.add(path.resolve())
+
+    def _render_resolved_component_with_dependency_tracking(
+        self,
+        component_name: str,
+        component,
+        props: dict[str, object],
+    ) -> SafeHtml:
+        """Render imported components while sharing the active entry dependency set."""
+        if not isinstance(component, ImportedComponentRef):
+            return self._render_resolved_component(component_name, component, props)
+
+        with self._shared_imported_plan_dependencies(component.renderer):
+            return self._render_resolved_component(component_name, component, props)
+
+    def _shared_imported_plan_dependencies(self, renderer):
+        """Temporarily let an imported renderer contribute to this entry plan's dependencies."""
+        parent = self
+
+        class _DependencyBridge:
+            def __enter__(self_nonlocal):
+                self_nonlocal.previous = renderer._plan_dependency_paths
+                renderer._plan_dependency_paths = parent._plan_dependency_paths
+                return renderer
+
+            def __exit__(self_nonlocal, exc_type, exc, tb):
+                renderer._plan_dependency_paths = self_nonlocal.previous
+                return False
+
+        return _DependencyBridge()
 
     def _expr_part(self, source: str, *, line: int = 0, column: int = 0) -> ExprPart:
         """Build one expression plan part tagged with its source module/component."""
