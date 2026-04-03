@@ -164,6 +164,8 @@ class DjulePlanMixin:
             return [NodePart(node)]
 
         if isinstance(node, ElementNode):
+            if any(attribute.standalone_expression for attribute in node.attributes):
+                return [NodePart(node)]
             parts: list[PlanPart] = [StaticPart(f"<{node.tag}")]
             for attribute in node.attributes:
                 parts.extend(self._compile_attribute_parts(attribute, bindings))
@@ -224,6 +226,8 @@ class DjulePlanMixin:
         bindings: dict[str, tuple[str, object]],
     ) -> list[PlanPart]:
         """Compile one attribute into static or dynamic render-plan parts."""
+        if attribute.value is None:
+            return [StaticPart(f" {attribute.name}")]
         if not isinstance(attribute.value, PythonExpr):
             literal_value = ast.literal_eval(attribute.value)
             return [StaticPart(f' {attribute.name}="{escape("" if literal_value is None else str(literal_value), quote=True)}"')]
@@ -302,7 +306,9 @@ class DjulePlanMixin:
         resolved: dict[str, tuple[str, object]] = {}
 
         for attribute in node.attributes:
-            if isinstance(attribute.value, PythonExpr):
+            if attribute.value is None:
+                resolved[attribute.name] = ("literal", True)
+            elif isinstance(attribute.value, PythonExpr):
                 binding = self._resolved_expression_binding(attribute.value.source, bindings)
                 if binding is not None:
                     resolved[attribute.name] = binding

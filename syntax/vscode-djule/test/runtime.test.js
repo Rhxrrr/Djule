@@ -27,6 +27,7 @@ const {
   inferDjangoFallbackGlobals,
   inferDocumentImportRoots,
   looksLikeDjangoProject,
+  resolveRuntimeRoot,
 } = require("../lib/runtime");
 
 function withTempDir(run) {
@@ -97,6 +98,37 @@ withTempDir((tempDir) => {
   const globals = inferDjangoFallbackGlobals(document, configuration);
   assert(globals.csrf_token, "Expected Django fallback globals to expose csrf_token");
   assert(globals.request, "Expected Django fallback globals to expose request");
+});
+
+withTempDir((tempDir) => {
+  const projectRoot = path.join(tempDir, "djule-project");
+  const parserRoot = path.join(projectRoot, "src", "djule", "parser");
+  const documentPath = path.join(projectRoot, "frontend", "pages", "login.djule");
+
+  createFile(path.join(projectRoot, "src", "djule", "__init__.py"), "");
+  createFile(path.join(parserRoot, "__main__.py"), "print('serve')");
+  createFile(path.join(parserRoot, "parser.py"), "VALUE = 1\n");
+  createFile(documentPath, "");
+
+  const document = fakeDocument(documentPath);
+  const configuration = fakeConfiguration({ projectRoot });
+  const context = { extensionPath: tempDir };
+
+  const first = resolveRuntimeRoot(document, context, configuration);
+  assert(first.signature, "Expected runtime root to include a Djule runtime signature");
+
+  const waitUntil = Date.now() + 1100;
+  while (Date.now() < waitUntil) {
+    // Let the signature TTL expire before rescanning.
+  }
+
+  createFile(path.join(parserRoot, "parser.py"), "VALUE = 2\n");
+  const second = resolveRuntimeRoot(document, context, configuration);
+  assert.notStrictEqual(
+    second.signature,
+    first.signature,
+    "Expected runtime signature to change when Djule runtime files change"
+  );
 });
 
 console.log("runtime tests passed");

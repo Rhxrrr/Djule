@@ -206,6 +206,37 @@ def Page():
             renderer.render(),
             '<main><img src="hero.png" /><button data-variant="primary"></button></main>',
         )
+
+    def test_standalone_html_attributes_render_without_values_and_braced_names_stay_dynamic(self):
+        source = """def Page(checked_value):
+    return (
+        <input type="checkbox" checked data-state={checked_value} />
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"checked_value": "active"}),
+            '<input type="checkbox" checked data-state="active" />',
+        )
+
+    def test_standalone_attribute_expressions_render_raw_attribute_fragments(self):
+        source = """def Page(checked):
+    return (
+        <input type="checkbox" {'checked' if checked else ''} />
+    )
+"""
+
+        renderer = DjuleRenderer.from_source(source)
+        self.assertEqual(
+            renderer.render(props={"checked": True}),
+            '<input type="checkbox" checked />',
+        )
+        self.assertEqual(
+            renderer.render(props={"checked": False}),
+            '<input type="checkbox" />',
+        )
+
     def test_from_file_reuses_cached_parsed_module_when_source_is_unchanged(self):
         first = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         second = DjuleRenderer.from_file(example_path("01_simple_page.djule"))

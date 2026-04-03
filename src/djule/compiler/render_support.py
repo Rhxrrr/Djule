@@ -377,6 +377,12 @@ class DjuleRenderMixin:
         """Render HTML attributes with proper escaping for dynamic values."""
         parts = []
         for attribute in attributes:
+            if attribute.standalone_expression:
+                parts.append(self._render_attribute_fragment(attribute, env))
+                continue
+            if attribute.value is None:
+                parts.append(f" {attribute.name}")
+                continue
             value = self._resolve_attribute_value(attribute, env)
             parts.append(f' {attribute.name}="{escape(value, quote=True)}"')
         return "".join(parts)
@@ -385,7 +391,9 @@ class DjuleRenderMixin:
         """Evaluate component prop values into a plain Python props dictionary."""
         props: dict[str, object] = {}
         for attribute in attributes:
-            if isinstance(attribute.value, PythonExpr):
+            if attribute.value is None:
+                props[attribute.name] = True
+            elif isinstance(attribute.value, PythonExpr):
                 props[attribute.name] = self._eval_python_expr(
                     attribute.value.source,
                     env,
@@ -398,6 +406,8 @@ class DjuleRenderMixin:
 
     def _resolve_attribute_value(self, attribute: AttributeNode, env: dict[str, object]) -> str:
         """Resolve one HTML attribute value to its final string form."""
+        if attribute.value is None:
+            return ""
         if isinstance(attribute.value, PythonExpr):
             value = self._eval_python_expr(
                 attribute.value.source,
@@ -411,6 +421,25 @@ class DjuleRenderMixin:
         if value is None:
             return ""
         return str(value)
+
+    def _render_attribute_fragment(self, attribute: AttributeNode, env: dict[str, object]) -> str:
+        """Render a standalone `{...}` attribute expression as raw attribute markup."""
+        if not isinstance(attribute.value, PythonExpr):
+            return ""
+
+        value = self._eval_python_expr(
+            attribute.value.source,
+            env,
+            line=attribute.value.line,
+            column=attribute.value.column,
+        )
+        if value in {None, False, ""}:
+            return ""
+
+        fragment = str(value).strip()
+        if not fragment:
+            return ""
+        return f" {fragment}"
 
     def _render_expression_value(self, value: object) -> SafeHtml:
         """Convert an expression result into safe HTML output.

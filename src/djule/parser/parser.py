@@ -363,7 +363,11 @@ class DjuleParser:
     def _parse_element_node(self) -> ElementNode:
         """Parse a plain HTML-like element and all of its child markup."""
         open_token = self._consume(TokenType.HTML_TAG_OPEN, "Expected HTML opening tag")
-        attributes = self._parse_attributes(allow_bare_component_expr=False)
+        attributes = self._parse_attributes(
+            allow_bare_component_expr=False,
+            allow_standalone_attributes=True,
+            allow_standalone_attribute_expressions=True,
+        )
         if self._match(TokenType.SELF_TAG_END):
             return ElementNode(tag=open_token.value, attributes=attributes, children=[], self_closing=True)
         self._consume(TokenType.TAG_END, "Expected '>' after opening tag")
@@ -379,7 +383,11 @@ class DjuleParser:
         separately, so using it as an explicit attribute is rejected here.
         """
         open_token = self._consume(TokenType.COMPONENT_TAG_OPEN, "Expected component opening tag")
-        attributes = self._parse_attributes(allow_bare_component_expr=True)
+        attributes = self._parse_attributes(
+            allow_bare_component_expr=True,
+            allow_standalone_attributes=False,
+            allow_standalone_attribute_expressions=False,
+        )
         for attribute in attributes:
             if attribute.name == "children":
                 raise self._error(
@@ -407,21 +415,39 @@ class DjuleParser:
             column=open_token.column,
         )
 
-    def _parse_attributes(self, *, allow_bare_component_expr: bool = False) -> list[AttributeNode]:
+    def _parse_attributes(
+        self,
+        *,
+        allow_bare_component_expr: bool = False,
+        allow_standalone_attributes: bool = False,
+        allow_standalone_attribute_expressions: bool = False,
+    ) -> list[AttributeNode]:
         """Parse a sequence of tag attributes.
 
         Attributes may take a literal string value or a braced Python
-        expression. Component tags also accept bare Python expressions like
-        `tone=primary` and `enabled=True`. Quoted string values may opt into
-        interpolation by using embedded `{...}` placeholders, which are
-        promoted to normal `PythonExpr` nodes here. The legacy single-token
-        `EXPR` form is also accepted so older cached/tokenized inputs still
-        parse cleanly.
+        expression. HTML tags may also use standalone attributes like
+        `checked`, plus standalone attribute expressions like
+        `{'checked' if enabled else ''}`. Component tags also accept bare
+        Python expressions like `tone=primary` and `enabled=True`. Quoted
+        string values may opt into interpolation by using embedded `{...}`
+        placeholders, which are promoted to normal `PythonExpr` nodes here.
+        The legacy single-token `EXPR` form is also accepted so older
+        cached/tokenized inputs still parse cleanly.
         """
         attributes = []
-        while self._check(TokenType.ATTR_NAME):
+        while self._check(TokenType.ATTR_NAME) or (
+            allow_standalone_attribute_expressions and self._check(TokenType.LBRACE)
+        ):
+            if allow_standalone_attribute_expressions and self._check(TokenType.LBRACE):
+                value = self._parse_braced_python_expr()
+                attributes.append(AttributeNode(name="", value=value, standalone_expression=True))
+                continue
             name = self._advance().value
-            self._consume(TokenType.EQUALS, "Expected '=' after attribute name")
+            if not self._match(TokenType.EQUALS):
+                if not allow_standalone_attributes:
+                    raise self._error("Expected '=' after attribute name")
+                attributes.append(AttributeNode(name=name, value=None))
+                continue
             bare_expression = False
             if self._check(TokenType.STRING):
                 value = self._parse_attribute_string(self._advance())

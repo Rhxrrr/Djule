@@ -472,7 +472,14 @@ class DjuleLexer:
         self._push_token(token_type, name, line, column)
 
         if not is_closing:
-            self._lex_tag_attributes(name, line, column, allow_bare_component_expr=is_component)
+            self._lex_tag_attributes(
+                name,
+                line,
+                column,
+                allow_bare_component_expr=is_component,
+                allow_standalone_attributes=not is_component,
+                allow_standalone_attribute_expressions=not is_component,
+            )
 
         while not self.is_at_end() and self.peek() in " \t":
             self.advance()
@@ -497,16 +504,20 @@ class DjuleLexer:
         tag_column: int,
         *,
         allow_bare_component_expr: bool = False,
+        allow_standalone_attributes: bool = False,
+        allow_standalone_attribute_expressions: bool = False,
     ) -> None:
         """Lex all attributes for the current opening tag.
 
         Attribute names accept alphanumerics plus `_`, `-`, and `:`. Values
-        must be either quoted strings or Djule `{...}` expressions. Component
-        tags may also opt into bare Python expressions like `tone=primary` or
-        `disabled=True`, which are emitted as legacy-compatible `EXPR` tokens.
-        If another tag start appears before `>`, this method reports the
-        opening tag as unclosed so malformed multiline tags get a more useful
-        error.
+        must be either quoted strings or Djule `{...}` expressions. HTML tags
+        may also use standalone attributes like `checked` or `disabled`, plus
+        standalone attribute expressions like `{'checked' if enabled else ''}`.
+        Component tags may also opt into bare Python expressions like
+        `tone=primary` or `disabled=True`, which are emitted as
+        legacy-compatible `EXPR` tokens. If another tag start appears before
+        `>`, this method reports the opening tag as unclosed so malformed
+        multiline tags get a more useful error.
         """
         while not self.is_at_end():
             while not self.is_at_end() and self.peek() in " \t\r\n":
@@ -521,6 +532,11 @@ class DjuleLexer:
                 if self.peek(1) == ">":
                     return
                 raise self._error(f"Expected > to close tag <{tag_name}>", tag_line, tag_column)
+            if self.peek() == "{":
+                if allow_standalone_attribute_expressions:
+                    self._lex_markup_expression()
+                    continue
+                raise self._error("Expected attribute name", self.line, self.column)
 
             line, column = self.line, self.column
             start = self.index
@@ -535,6 +551,8 @@ class DjuleLexer:
                 self.advance()
 
             if self.peek() != "=":
+                if allow_standalone_attributes:
+                    continue
                 raise self._error("Expected = after attribute name", self.line, self.column)
             self._push_token(TokenType.EQUALS, "=", self.line, self.column)
             self.advance()

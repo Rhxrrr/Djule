@@ -34,6 +34,8 @@ const DJANGO_FALLBACK_GLOBALS = {
     detail: "Django user",
   },
 };
+const RUNTIME_SIGNATURE_CACHE_TTL_MS = 1000;
+const runtimeSignatureCache = new Map();
 
 async function resolvePythonCommand(document, configuration) {
   const configuredCommand = normalizePythonCommand(configuration.get("pythonCommand", ""));
@@ -142,6 +144,7 @@ function resolveRuntimeRoot(document, context, configuration) {
         env: {
           PYTHONPATH: withPythonPathPrepended(resolved),
         },
+        signature: resolveDjuleRuntimeSignature(resolved),
       };
     }
   }
@@ -152,7 +155,87 @@ function resolveRuntimeRoot(document, context, configuration) {
   return {
     cwd: fallback,
     env: {},
+    signature: "",
   };
+}
+
+function resolveDjuleRuntimeSignature(root) {
+  const resolvedRoot = safeResolve(root);
+  if (!resolvedRoot) {
+    return "";
+  }
+
+  const now = Date.now();
+  const cached = runtimeSignatureCache.get(resolvedRoot);
+  if (cached && now - cached.computedAt < RUNTIME_SIGNATURE_CACHE_TTL_MS) {
+    return cached.signature;
+  }
+
+  const packageRoot = resolveDjulePackageRoot(resolvedRoot);
+  const signature = packageRoot ? buildRuntimeSignature(packageRoot) : "";
+  runtimeSignatureCache.set(resolvedRoot, {
+    computedAt: now,
+    signature,
+  });
+  return signature;
+}
+
+function resolveDjulePackageRoot(projectRoot) {
+  const candidates = [
+    path.join(projectRoot, "src", "djule"),
+    path.join(projectRoot, "djule"),
+    path.join(projectRoot, "src"),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "parser", "__main__.py"))) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function buildRuntimeSignature(packageRoot) {
+  let latestMtimeMs = 0;
+  let fileCount = 0;
+  const pending = [packageRoot];
+
+  while (pending.length > 0) {
+    const currentDir = pending.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (_error) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.name === "__pycache__") {
+        continue;
+      }
+
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile() || !entry.name.endsWith(".py")) {
+        continue;
+      }
+
+      fileCount += 1;
+      try {
+        const stats = fs.statSync(fullPath);
+        latestMtimeMs = Math.max(latestMtimeMs, stats.mtimeMs || 0);
+      } catch (_error) {
+        // Ignore transient stat failures while scanning.
+      }
+    }
+  }
+
+  return `${packageRoot}:${fileCount}:${Math.floor(latestMtimeMs)}`;
 }
 
 function inferDocumentImportRoots(document, sourceText = "") {

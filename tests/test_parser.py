@@ -263,6 +263,57 @@ def Page(username):
         with self.assertRaises(LexerError):
             DjuleParser.from_source(source).parse()
 
+    def test_html_attributes_accept_standalone_attributes_without_shadowing_scope_names(self):
+        source = """
+def Page(checked):
+    return (
+        <input checked value={checked}></input>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ElementNode)
+        self.assertEqual(root.attributes[0].name, "checked")
+        self.assertIsNone(root.attributes[0].value)
+        self.assertIsInstance(root.attributes[1].value, PythonExpr)
+        self.assertEqual(root.attributes[1].value.source, "checked")
+
+    def test_component_attributes_still_reject_standalone_attributes(self):
+        source = """
+def Page():
+    return (
+        <Checkbox checked />
+    )
+"""
+        with self.assertRaises(LexerError):
+            DjuleParser.from_source(source).parse()
+
+    def test_html_attributes_accept_standalone_attribute_expressions(self):
+        source = """
+def Page(checked):
+    return (
+        <input {'checked' if checked else ''} value={checked}></input>
+    )
+"""
+        module = DjuleParser.from_source(source).parse()
+
+        root = module.components[0].return_stmt.value
+        self.assertIsInstance(root, ElementNode)
+        self.assertTrue(root.attributes[0].standalone_expression)
+        self.assertEqual(root.attributes[0].value.source, "'checked' if checked else ''")
+        self.assertEqual(root.attributes[1].name, "value")
+
+    def test_component_attributes_still_reject_standalone_attribute_expressions(self):
+        source = """
+def Page(flag):
+    return (
+        <Checkbox {'checked' if flag else ''} />
+    )
+"""
+        with self.assertRaises(LexerError):
+            DjuleParser.from_source(source).parse()
+
     def test_multiline_brace_block_without_if_or_for_is_rejected(self):
         source = """
 from examples.components.ui import Card

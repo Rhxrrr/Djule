@@ -37,10 +37,11 @@ ImportNode = Union[ImportFrom, ImportModule]
 
 @dataclass(frozen=True)
 class AttributeNode:
-    """One markup attribute whose value is either literal text or a Python expression."""
+    """One markup attribute whose value is literal text, a Python expression, or bare presence."""
     name: str
-    value: str | PythonExpr
+    value: str | PythonExpr | None
     bare_expression: bool = False
+    standalone_expression: bool = False
     type: str = field(init=False, default="AttributeNode")
 
 

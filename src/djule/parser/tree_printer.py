@@ -217,6 +217,8 @@ class DjuleTreePrinter:
         if isinstance(node, EmbeddedForNode):
             return f"EmbeddedForNode target={node.target}"
         if isinstance(node, AttributeNode):
+            if node.standalone_expression:
+                return "AttributeNode {expr}"
             return f"AttributeNode {node.name}"
         if isinstance(node, PythonExpr):
             return f"PythonExpr: {node.source}"

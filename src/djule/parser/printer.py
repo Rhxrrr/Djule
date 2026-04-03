@@ -193,6 +193,10 @@ class DjulePrinter:
 
     def _print_attribute(self, attribute: AttributeNode) -> str:
         """Render one attribute value in literal or `{expr}` form."""
+        if attribute.standalone_expression and isinstance(attribute.value, PythonExpr):
+            return f"{{{attribute.value.source}}}"
+        if attribute.value is None:
+            return attribute.name
         if isinstance(attribute.value, PythonExpr):
             if attribute.bare_expression:
                 return f"{attribute.name}={attribute.value.source}"

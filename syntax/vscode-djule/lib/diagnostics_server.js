@@ -20,17 +20,29 @@ class DjuleDiagnosticsServerPool {
       throw new Error("Djule syntax server pool has been disposed");
     }
 
-    const key = JSON.stringify({
+    const baseKey = JSON.stringify({
       cwd: runtimeRoot.cwd,
       pythonCommand,
       pythonPath: runtimeRoot.env?.PYTHONPATH || "",
     });
+    const key = JSON.stringify({
+      cwd: runtimeRoot.cwd,
+      pythonCommand,
+      pythonPath: runtimeRoot.env?.PYTHONPATH || "",
+      runtimeSignature: runtimeRoot.signature || "",
+    });
 
-    let server = this.servers.get(key);
-    if (!server) {
-      server = new DjuleDiagnosticsServer(pythonCommand, runtimeRoot);
-      this.servers.set(key, server);
+    const cached = this.servers.get(baseKey);
+    if (cached && cached.key === key) {
+      return cached.server;
     }
+
+    if (cached) {
+      cached.server.dispose();
+    }
+
+    const server = new DjuleDiagnosticsServer(pythonCommand, runtimeRoot);
+    this.servers.set(baseKey, { key, server });
     return server;
   }
 
@@ -39,8 +51,8 @@ class DjuleDiagnosticsServerPool {
       return;
     }
     this.disposed = true;
-    for (const server of this.servers.values()) {
-      server.dispose();
+    for (const entry of this.servers.values()) {
+      entry.server.dispose();
     }
     this.servers.clear();
   }
