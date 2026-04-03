@@ -107,6 +107,7 @@ class DjuleImportMixin:
             importables=self.importables,
             search_paths=self.search_paths,
             renderer_cache=self.renderer_cache,
+            cache_validate=self.cache_validate,
         )
 
     def _module_import_values(self) -> dict[str, object]:

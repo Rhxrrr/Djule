@@ -178,6 +178,15 @@ def _django_template_options(settings_obj=None) -> list[dict[str, object]]:
     return options_list
 
 
+def get_djule_cache_validate(*, settings_obj=None, default: bool = True) -> bool:
+    """Return whether Djule should validate cached pages on every request."""
+    options_list = _django_template_options(settings_obj)
+    for options in options_list:
+        if "cache_validate" in options:
+            return bool(options.get("cache_validate"))
+    return default
+
+
 def _find_manage_py(start_path: Path | None) -> Path | None:
     """Walk upward from `start_path` until a Django `manage.py` is found."""
     if start_path is None:
@@ -768,6 +777,7 @@ def render_djule(
     builtins: Mapping[str, object] | None = None,
     include_request_prop: bool = False,
     context_processors: Sequence[str | Callable[[object], object]] | None = None,
+    cache_validate: bool | None = None,
     settings_obj=None,
 ) -> str:
     """Render a Djule template to HTML for use inside a Django project.
@@ -806,6 +816,7 @@ def render_djule(
         component_registry=component_registry,
         importables=resolved_importables,
         search_paths=resolved_search_paths,
+        cache_validate=get_djule_cache_validate(settings_obj=settings_obj) if cache_validate is None else cache_validate,
     )
     return renderer.render(
         component_name=component_name,
@@ -825,6 +836,7 @@ def render_djule_response(
     builtins: Mapping[str, object] | None = None,
     include_request_prop: bool = False,
     context_processors: Sequence[str | Callable[[object], object]] | None = None,
+    cache_validate: bool | None = None,
     status: int = 200,
     content_type: str = "text/html; charset=utf-8",
     headers: Mapping[str, str] | None = None,
@@ -846,6 +858,7 @@ def render_djule_response(
         builtins=builtins,
         include_request_prop=include_request_prop,
         context_processors=context_processors,
+        cache_validate=cache_validate,
         settings_obj=settings_obj,
     )
     return HttpResponse(html, status=status, content_type=content_type, headers=headers)

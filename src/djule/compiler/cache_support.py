@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -47,6 +48,7 @@ class DjuleCacheMixin:
         importables=None,
         *,
         search_paths: list[Path] | None = None,
+        cache_validate: bool = True,
     ):
         """Construct a renderer directly from raw Djule source text."""
         module = DjuleParser.from_source(source).parse()
@@ -57,6 +59,7 @@ class DjuleCacheMixin:
             builtins=builtins,
             importables=importables,
             search_paths=resolved_search_paths,
+            cache_validate=cache_validate,
         )
 
     @classmethod
@@ -69,10 +72,11 @@ class DjuleCacheMixin:
         *,
         search_paths: list[Path] | None = None,
         renderer_cache: dict[Path, "DjuleRenderer"] | None = None,
+        cache_validate: bool = True,
     ):
         """Construct a renderer from a file, reusing parsed-module caches when possible."""
         resolved_path = Path(path).resolve()
-        module = cls._load_cached_module(resolved_path)
+        module = cls._load_cached_module(resolved_path, cache_validate=cache_validate)
         resolved_search_paths = [base.resolve() for base in (search_paths or cls._default_search_paths())]
         return cls(
             module,
@@ -82,6 +86,7 @@ class DjuleCacheMixin:
             module_path=resolved_path,
             search_paths=resolved_search_paths,
             renderer_cache=renderer_cache,
+            cache_validate=cache_validate,
         )
 
     @classmethod
@@ -92,6 +97,7 @@ class DjuleCacheMixin:
         cls._entry_plan_cache.clear()
         cls._trusted_module_cache_paths.clear()
         cls._trusted_entry_plan_cache_keys.clear()
+        cls._observed_invalidation_token = None
         cache_root = Path(os.environ.get("DJULE_CACHE_DIR", ".djule-cache")).resolve()
         if cache_root.exists():
             shutil.rmtree(cache_root, ignore_errors=True)
@@ -106,38 +112,45 @@ class DjuleCacheMixin:
         }
 
     @classmethod
-    def _load_cached_module(cls, path: Path) -> Module:
-        """Load a parsed module, validating one cached entry at most once per process."""
+    def _load_cached_module(cls, path: Path, *, cache_validate: bool = True) -> Module:
+        """Load a parsed module, validating it against disk when requested."""
+        cls._sync_external_invalidations()
         resolved_path = path.resolve()
         cache_entry = cls._parsed_module_cache.get(resolved_path)
-        if cache_entry is not None and resolved_path in cls._trusted_module_cache_paths:
+        if cache_entry is not None and (not cache_validate) and resolved_path in cls._trusted_module_cache_paths:
             return cache_entry[2]
 
         stat = resolved_path.stat()
         if cache_entry is not None:
             cached_mtime_ns, cached_size, cached_module = cache_entry
             if cached_mtime_ns == stat.st_mtime_ns and cached_size == stat.st_size:
-                cls._trusted_module_cache_paths.add(resolved_path)
+                if not cache_validate:
+                    cls._trusted_module_cache_paths.add(resolved_path)
                 return cached_module
             cls._parsed_module_cache.pop(resolved_path, None)
             cls._trusted_module_cache_paths.discard(resolved_path)
 
-        if resolved_path in cls._trusted_module_cache_paths:
+        if (not cache_validate) and resolved_path in cls._trusted_module_cache_paths:
             disk_cached_module = cls._load_disk_cached_module(resolved_path, stat_result=None)
             if disk_cached_module is not None:
                 cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, disk_cached_module)
                 return disk_cached_module
             cls._trusted_module_cache_paths.discard(resolved_path)
 
-        disk_cached_module = cls._load_disk_cached_module(resolved_path, stat_result=stat)
+        disk_cached_module = cls._load_disk_cached_module(
+            resolved_path,
+            stat_result=None if not cache_validate else stat,
+        )
         if disk_cached_module is not None:
             cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, disk_cached_module)
-            cls._trusted_module_cache_paths.add(resolved_path)
+            if not cache_validate:
+                cls._trusted_module_cache_paths.add(resolved_path)
             return disk_cached_module
 
         module = DjuleParser.from_file(resolved_path).parse()
         cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, module)
-        cls._trusted_module_cache_paths.add(resolved_path)
+        if not cache_validate:
+            cls._trusted_module_cache_paths.add(resolved_path)
         cls._write_disk_cached_module(resolved_path, stat, module)
         return module
 
@@ -189,6 +202,54 @@ class DjuleCacheMixin:
         """Return the disk cache file path for one compiled entry component plan."""
         digest = hashlib.sha256(f"{path}::{component_name}".encode("utf-8")).hexdigest()
         return cls._cache_root() / "plans" / f"{digest}.json"
+
+    @classmethod
+    def _invalidation_state_path(cls) -> Path:
+        """Return the shared invalidation token file used across Djule processes."""
+        return cls._cache_root() / "invalidation.json"
+
+    @classmethod
+    def _load_invalidation_token(cls) -> int | None:
+        """Read the latest shared invalidation token from disk, if one exists."""
+        path = cls._invalidation_state_path()
+        if not path.exists():
+            return None
+
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+
+        token = payload.get("token")
+        return token if isinstance(token, int) else None
+
+    @classmethod
+    def _record_invalidation_token(cls, changed_path: Path | None = None) -> None:
+        """Publish a shared invalidation token so other processes can drop trust."""
+        token = time.time_ns()
+        payload: dict[str, object] = {"token": token}
+        if changed_path is not None:
+            payload["changed_path"] = str(changed_path.resolve())
+
+        try:
+            cls._write_json_file(cls._invalidation_state_path(), payload)
+        except OSError:
+            return
+
+        cls._observed_invalidation_token = token
+
+    @classmethod
+    def _sync_external_invalidations(cls) -> None:
+        """Drop local trusted cache markers when another process invalidated Djule cache."""
+        token = cls._load_invalidation_token()
+        if token == cls._observed_invalidation_token:
+            return
+
+        cls._parsed_module_cache.clear()
+        cls._entry_plan_cache.clear()
+        cls._trusted_module_cache_paths.clear()
+        cls._trusted_entry_plan_cache_keys.clear()
+        cls._observed_invalidation_token = token
 
     @classmethod
     def _load_disk_cached_module(cls, path: Path, *, stat_result: os.stat_result | None) -> Module | None:
@@ -329,12 +390,14 @@ class DjuleCacheMixin:
         path: Path,
         component_name: str,
     ) -> ComponentPlan:
-        """Load a compiled entry plan, validating one cached entry at most once per process."""
+        """Load a compiled entry plan, validating it per request unless disabled."""
+        self._sync_external_invalidations()
         resolved_path = path.resolve()
+        cache_validation_enabled = self.cache_validate
 
         cache_key = (resolved_path, component_name)
         cache_entry = self._entry_plan_cache.get(cache_key)
-        if cache_entry is not None and cache_key in self._trusted_entry_plan_cache_keys:
+        if cache_entry is not None and (cache_validation_enabled is False) and cache_key in self._trusted_entry_plan_cache_keys:
             return cache_entry[2]
 
         stat = resolved_path.stat()
@@ -343,31 +406,33 @@ class DjuleCacheMixin:
             if (
                 cached_mtime_ns == stat.st_mtime_ns
                 and cached_size == stat.st_size
-                and self._dependencies_are_current(cached_deps)
+                and (
+                    not cache_validation_enabled
+                    or self._dependencies_are_current(cached_deps)
+                )
             ):
-                self._trusted_entry_plan_cache_keys.add(cache_key)
+                if not cache_validation_enabled:
+                    self._trusted_entry_plan_cache_keys.add(cache_key)
                 return cached_plan
             self._entry_plan_cache.pop(cache_key, None)
             self._trusted_entry_plan_cache_keys.discard(cache_key)
 
-        if cache_key in self._trusted_entry_plan_cache_keys:
-            disk_cached = self._load_disk_cached_entry_plan(resolved_path, component_name, stat_result=None)
-            if disk_cached is not None:
-                plan, dependencies = disk_cached
-                self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
-                return plan
-            self._trusted_entry_plan_cache_keys.discard(cache_key)
-
-        disk_cached = self._load_disk_cached_entry_plan(resolved_path, component_name, stat_result=stat)
+        disk_cached = self._load_disk_cached_entry_plan(
+            resolved_path,
+            component_name,
+            stat_result=None if not cache_validation_enabled else stat,
+        )
         if disk_cached is not None:
             plan, dependencies = disk_cached
             self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
-            self._trusted_entry_plan_cache_keys.add(cache_key)
+            if not cache_validation_enabled:
+                self._trusted_entry_plan_cache_keys.add(cache_key)
             return plan
 
         plan, dependencies = self._compile_entry_plan(component_name)
         self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
-        self._trusted_entry_plan_cache_keys.add(cache_key)
+        if not cache_validation_enabled:
+            self._trusted_entry_plan_cache_keys.add(cache_key)
         self._write_disk_cached_entry_plan(resolved_path, component_name, stat, plan, dependencies)
         return plan
 
@@ -513,6 +578,7 @@ class DjuleCacheMixin:
             cls._entry_plan_cache.pop(cache_key, None)
             cls._trusted_entry_plan_cache_keys.discard(cache_key)
 
+        cls._record_invalidation_token(resolved_path)
         return invalidated_entry_keys
 
 

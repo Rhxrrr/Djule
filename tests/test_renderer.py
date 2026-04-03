@@ -247,6 +247,107 @@ def Page():
         self.assertIn("First", first_html)
         self.assertIn("Second", second_html)
 
+    def test_template_cache_validate_false_reuses_disk_cache_without_revalidation(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "AccountInactiveNotice.djule").write_text(
+                """def AccountInactiveNotice():
+    return (
+        <div class="hidden">inactive</div>
+    )
+"""
+            )
+            page_path = root / "page.djule"
+            page_path.write_text(
+                """from components.AccountInactiveNotice import AccountInactiveNotice
+
+def Page():
+    return (
+        <main><AccountInactiveNotice></AccountInactiveNotice></main>
+    )
+"""
+            )
+
+            first_renderer = DjuleRenderer.from_file(page_path, search_paths=[root], cache_validate=False)
+            first_html = first_renderer.render()
+            self.assertIn('class="hidden"', first_html)
+
+            time.sleep(0.01)
+            changed_path = components_dir / "AccountInactiveNotice.djule"
+            changed_path.write_text(
+                """def AccountInactiveNotice():
+    return (
+        <div>inactive</div>
+    )
+"""
+            )
+
+            DjuleRenderer._parsed_module_cache.clear()
+            DjuleRenderer._compiled_expr_cache.clear()
+            DjuleRenderer._entry_plan_cache.clear()
+            DjuleRenderer._trusted_module_cache_paths.clear()
+            DjuleRenderer._trusted_entry_plan_cache_keys.clear()
+            DjuleRenderer._observed_invalidation_token = None
+
+            second_renderer = DjuleRenderer.from_file(page_path, search_paths=[root], cache_validate=False)
+            second_html = second_renderer.render()
+
+        self.assertIn('class="hidden"', second_html)
+
+    def test_external_invalidation_token_clears_opt_out_template_trust(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "AccountInactiveNotice.djule").write_text(
+                """def AccountInactiveNotice():
+    return (
+        <div class="hidden">inactive</div>
+    )
+"""
+            )
+            page_path = root / "page.djule"
+            page_path.write_text(
+                """from components.AccountInactiveNotice import AccountInactiveNotice
+
+def Page():
+    return (
+        <main><AccountInactiveNotice></AccountInactiveNotice></main>
+    )
+"""
+            )
+
+            first_renderer = DjuleRenderer.from_file(page_path, search_paths=[root], cache_validate=False)
+            first_html = first_renderer.render()
+            self.assertIn('class="hidden"', first_html)
+
+            time.sleep(0.01)
+            changed_path = components_dir / "AccountInactiveNotice.djule"
+            changed_path.write_text(
+                """def AccountInactiveNotice():
+    return (
+        <div>inactive</div>
+    )
+"""
+            )
+
+            DjuleRenderer._module_cache_path(changed_path.resolve()).unlink(missing_ok=True)
+            DjuleRenderer._plan_cache_path(page_path.resolve(), "Page").unlink(missing_ok=True)
+            DjuleRenderer._write_json_file(
+                DjuleRenderer._invalidation_state_path(),
+                {"token": time.time_ns(), "changed_path": str(changed_path.resolve())},
+            )
+
+            second_renderer = DjuleRenderer.from_file(page_path, search_paths=[root], cache_validate=False)
+            second_html = second_renderer.render()
+
+        self.assertIn("<div>inactive</div>", second_html)
+        self.assertNotIn('class="hidden"', second_html)
+
     def test_from_file_uses_disk_cached_module_after_memory_cache_is_cleared(self):
         renderer = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
         html = renderer.render(props={"title": "Hello Djule"})

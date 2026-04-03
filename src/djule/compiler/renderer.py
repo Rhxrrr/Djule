@@ -21,7 +21,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     responsibilities remain easier to reason about.
     """
 
-    CACHE_VERSION: ClassVar[int] = 13
+    CACHE_VERSION: ClassVar[int] = 15
     _parsed_module_cache: ClassVar[dict[Path, tuple[int, int, Module]]] = {}
     _compiled_expr_cache: ClassVar[dict[tuple[str, str], CodeType]] = {}
     _entry_plan_cache: ClassVar[
@@ -29,6 +29,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     ] = {}
     _trusted_module_cache_paths: ClassVar[set[Path]] = set()
     _trusted_entry_plan_cache_keys: ClassVar[set[tuple[Path, str]]] = set()
+    _observed_invalidation_token: ClassVar[int | None] = None
 
     DEFAULT_BUILTINS: Mapping[str, object] = {
         "bool": bool,
@@ -56,6 +57,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         module_path: Path | None = None,
         search_paths: list[Path] | None = None,
         renderer_cache: dict[Path, "DjuleRenderer"] | None = None,
+        cache_validate: bool = True,
     ) -> None:
         """Initialize a renderer for one parsed Djule module.
 
@@ -73,6 +75,7 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
         self.importables = dict(importables or {})
         self.search_paths = [path.resolve() for path in (search_paths or [])]
         self.renderer_cache = renderer_cache if renderer_cache is not None else {}
+        self.cache_validate = cache_validate
         if self.module_path is not None:
             self.renderer_cache[self.module_path] = self
         self.auto_component_registry: dict[str, ImportedComponentRef] = {}

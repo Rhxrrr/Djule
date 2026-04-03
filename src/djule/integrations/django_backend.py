@@ -89,6 +89,7 @@ class DjuleTemplate:
                 component_registry=self.backend.component_registry,
                 importables=resolved_importables,
                 search_paths=self.backend.search_paths,
+                cache_validate=self.backend.cache_validate,
             )
         else:
             renderer = DjuleRenderer.from_source(
@@ -96,6 +97,7 @@ class DjuleTemplate:
                 component_registry=self.backend.component_registry,
                 importables=resolved_importables,
                 search_paths=self.backend.search_paths,
+                cache_validate=self.backend.cache_validate,
             )
 
         return renderer.render(
@@ -128,6 +130,7 @@ class DjuleTemplates(BaseEngine):  # pragma: no cover - covered via Django integ
         self.component_registry = options.get("component_registry")
         self.djule_builtins = dict(options.get("djule_builtins") or {})
         self.include_request_prop = bool(options.get("include_request_prop", False))
+        self.cache_validate = bool(options.get("cache_validate", True))
         self.engine = Engine(
             dirs=list(self.dirs),
             app_dirs=self.app_dirs,

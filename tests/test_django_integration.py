@@ -363,7 +363,7 @@ class DjangoIntegrationTests(unittest.TestCase):
 
         self.assertEqual(html, "<main>hello</main>")
 
-    def test_render_djule_reuses_cached_plan_on_repeated_requests(self):
+    def test_render_djule_revalidates_cached_plan_on_repeated_requests_by_default(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             template_path = Path(tmp_dir) / "page.djule"
             template_path.write_text(
@@ -374,6 +374,63 @@ class DjangoIntegrationTests(unittest.TestCase):
 """
             )
             settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[tmp_dir], DEBUG=True)
+
+            original_ensure = django_integration.ensure_djule_autoreload
+            from djule.compiler import DjuleRenderer
+            from djule.compiler.cache_support import DjuleCacheMixin
+
+            original_compile = DjuleRenderer._compile_entry_plan
+            original_dependency_check = DjuleCacheMixin.__dict__["_dependencies_are_current"]
+            dependency_checks: list[tuple[tuple[str, int, int], ...]] = []
+            try:
+                django_integration.ensure_djule_autoreload = lambda **kwargs: True
+                first_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+                DjuleRenderer._compile_entry_plan = lambda self, component_name: (_ for _ in ()).throw(
+                    AssertionError("cached render plan should be reused")
+                )
+                DjuleRenderer._dependencies_are_current = staticmethod(
+                    lambda dependencies: dependency_checks.append(dependencies) or True
+                )
+                second_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+            finally:
+                django_integration.ensure_djule_autoreload = original_ensure
+                DjuleRenderer._compile_entry_plan = original_compile
+                DjuleRenderer._dependencies_are_current = original_dependency_check
+
+        self.assertEqual(first_html, "<main>Hello</main>")
+        self.assertEqual(second_html, "<main>Hello</main>")
+        self.assertEqual(len(dependency_checks), 1)
+
+    def test_render_djule_opt_out_skips_revalidation_on_repeated_requests(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            template_path = Path(tmp_dir) / "page.djule"
+            template_path.write_text(
+                """def Page():
+    return (
+        <main>Hello</main>
+    )
+"""
+            )
+            settings_obj = SimpleNamespace(
+                DJULE_IMPORT_ROOTS=[tmp_dir],
+                DEBUG=True,
+                TEMPLATES=[
+                    {
+                        "BACKEND": DJULE_TEMPLATE_BACKEND,
+                        "OPTIONS": {
+                            "cache_validate": False,
+                        },
+                    }
+                ],
+            )
 
             original_ensure = django_integration.ensure_djule_autoreload
             from djule.compiler import DjuleRenderer
@@ -393,7 +450,7 @@ class DjangoIntegrationTests(unittest.TestCase):
                 )
                 DjuleRenderer._dependencies_are_current = staticmethod(
                     lambda dependencies: (_ for _ in ()).throw(
-                        AssertionError("cached page should not be revalidated after first trust")
+                        AssertionError("opt-out template should not validate cache per request")
                     )
                 )
                 second_html = render_djule(

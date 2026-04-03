@@ -59,7 +59,6 @@ class DjuleParser:
     imports, component definitions, Python statements above `return`, and
     returned markup with HTML/component tags plus `{expr}` interpolation.
     """
-
     def __init__(self, tokens: list[Token], *, source_path: str | None = None) -> None:
         """Initialize the parser with a pre-tokenized Djule source stream."""
         self.tokens = tokens
