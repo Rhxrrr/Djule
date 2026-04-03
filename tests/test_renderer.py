@@ -213,7 +213,7 @@ def Page():
         self.assertIs(first.module, second.module)
         self.assertEqual(DjuleRenderer.cache_stats()["parsed_modules"], 1)
 
-    def test_from_file_reparses_when_source_file_changes(self):
+    def test_from_file_revalidates_stale_disk_cache_once_per_process(self):
         source_a = """def Page():
     return (
         <main>
@@ -235,6 +235,11 @@ def Page():
             first_html = first.render()
 
             path.write_text(source_b)
+            DjuleRenderer._parsed_module_cache.clear()
+            DjuleRenderer._compiled_expr_cache.clear()
+            DjuleRenderer._entry_plan_cache.clear()
+            DjuleRenderer._trusted_module_cache_paths.clear()
+            DjuleRenderer._trusted_entry_plan_cache_keys.clear()
             second = DjuleRenderer.from_file(path)
             second_html = second.render()
 
@@ -247,7 +252,9 @@ def Page():
         html = renderer.render(props={"title": "Hello Djule"})
         self.assertIn("Hello Djule", html)
 
-        DjuleRenderer.clear_caches()
+        DjuleRenderer._parsed_module_cache.clear()
+        DjuleRenderer._compiled_expr_cache.clear()
+        DjuleRenderer._entry_plan_cache.clear()
 
         with patch.object(DjuleParser, "from_file", side_effect=AssertionError("parser should not run")):
             cached_renderer = DjuleRenderer.from_file(example_path("01_simple_page.djule"))
@@ -258,7 +265,7 @@ def Page():
     def test_render_writes_render_plan_to_disk_cache(self):
         self.render("01_simple_page.djule", props={"title": "Hello Djule"})
 
-        plan_dir = Path(self._cache_dir.name) / "plans"
+        plan_dir = DjuleRenderer._cache_root() / "plans"
         plan_files = list(plan_dir.glob("*.json"))
         self.assertTrue(plan_files)
         self.assertEqual(len(plan_files), 1)
@@ -378,7 +385,7 @@ def Page():
     def test_page_render_only_persists_the_entry_component_plan(self):
         self.render("02_component_import.djule", props={"title": "Hello Djule"})
 
-        plan_dir = Path(self._cache_dir.name) / "plans"
+        plan_dir = DjuleRenderer._cache_root() / "plans"
         plan_files = list(plan_dir.glob("*.json"))
         self.assertEqual(len(plan_files), 1)
         self.assertTrue(DjuleRenderer._plan_cache_path(example_path("02_component_import.djule").resolve(), "Page").exists())
@@ -721,6 +728,7 @@ def Page():
 """
             )
 
+            DjuleRenderer.invalidate_path_caches(components_dir / "ui.djule")
             second_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
             second_html = second_renderer.render()
             self.assertIn('class="card updated"', second_html)
@@ -770,9 +778,63 @@ def Page():
 """
             )
 
+            DjuleRenderer.invalidate_path_caches(components_dir / "Input.djule")
             second_renderer = DjuleRenderer.from_file(root / "page.djule", search_paths=[root])
             second_html = second_renderer.render()
             self.assertIn('class="new"', second_html)
+
+    def test_invalidate_path_caches_removes_only_affected_page_plans(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            components_dir = root / "components"
+            components_dir.mkdir()
+
+            (components_dir / "Shared.djule").write_text(
+                """def Shared():
+    return (
+        <span>shared</span>
+    )
+"""
+            )
+            (root / "page_a.djule").write_text(
+                """from components.Shared import Shared
+
+def Page():
+    return (
+        <main><Shared></Shared></main>
+    )
+"""
+            )
+            (root / "page_b.djule").write_text(
+                """from components.Shared import Shared
+
+def Page():
+    return (
+        <section><Shared></Shared></section>
+    )
+"""
+            )
+            (root / "page_c.djule").write_text(
+                """def Page():
+    return (
+        <aside>independent</aside>
+    )
+"""
+            )
+
+            DjuleRenderer.from_file(root / "page_a.djule", search_paths=[root]).render()
+            DjuleRenderer.from_file(root / "page_b.djule", search_paths=[root]).render()
+            DjuleRenderer.from_file(root / "page_c.djule", search_paths=[root]).render()
+
+            page_a_key = ((root / "page_a.djule").resolve(), "Page")
+            page_b_key = ((root / "page_b.djule").resolve(), "Page")
+            page_c_key = ((root / "page_c.djule").resolve(), "Page")
+
+            invalidated = DjuleRenderer.invalidate_path_caches(components_dir / "Shared.djule")
+            self.assertEqual(invalidated, {page_a_key, page_b_key})
+            self.assertFalse(DjuleRenderer._plan_cache_path(page_a_key[0], "Page").exists())
+            self.assertFalse(DjuleRenderer._plan_cache_path(page_b_key[0], "Page").exists())
+            self.assertTrue(DjuleRenderer._plan_cache_path(page_c_key[0], "Page").exists())
 
     def test_expression_failure_includes_runtime_context(self):
         source = """def Page(user):

@@ -673,7 +673,7 @@ def handle_djule_file_change(
 
     for directory in get_djule_watch_directories(settings_obj=settings_obj, extra_paths=extra_paths):
         if directory == resolved.parent or directory in resolved.parents:
-            DjuleRenderer.clear_caches()
+            DjuleRenderer.invalidate_path_caches(resolved)
             trigger_browser_reload()
             return True
 

@@ -27,6 +27,8 @@ class DjuleRenderer(DjuleCacheMixin, DjulePlanMixin, DjuleImportMixin, DjuleRend
     _entry_plan_cache: ClassVar[
         dict[tuple[Path, str], tuple[int, int, ComponentPlan, tuple[tuple[str, int, int], ...]]]
     ] = {}
+    _trusted_module_cache_paths: ClassVar[set[Path]] = set()
+    _trusted_entry_plan_cache_keys: ClassVar[set[tuple[Path, str]]] = set()
 
     DEFAULT_BUILTINS: Mapping[str, object] = {
         "bool": bool,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +44,16 @@ def invalid_context_processor(_request):
 class DjangoIntegrationTests(unittest.TestCase):
     def setUp(self):
         django_integration._AUTORELOAD_CONNECTED = False
+        self._cache_dir = tempfile.TemporaryDirectory()
+        self._cache_env = patch.dict(os.environ, {"DJULE_CACHE_DIR": self._cache_dir.name}, clear=False)
+        self._cache_env.start()
+        from djule.compiler import DjuleRenderer
+
+        DjuleRenderer.clear_caches()
+
+    def tearDown(self):
+        self._cache_env.stop()
+        self._cache_dir.cleanup()
 
     def test_get_djule_search_paths_prefers_explicit_settings_roots(self):
         settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[str(ROOT / "examples"), str(ROOT)])
@@ -205,25 +216,26 @@ class DjangoIntegrationTests(unittest.TestCase):
             [((ROOT / "examples").resolve(), "**/*.djule"), (ROOT.resolve(), "**/*.djule")],
         )
 
-    def test_handle_djule_file_change_clears_caches_triggers_browser_reload_and_returns_true(self):
+    def test_handle_djule_file_change_invalidates_changed_path_triggers_browser_reload_and_returns_true(self):
         settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[str(ROOT)])
 
         from djule.compiler import DjuleRenderer
 
-        original_clear_caches = DjuleRenderer.clear_caches
+        original_invalidate = DjuleRenderer.invalidate_path_caches
         original_trigger_browser_reload = django_integration.trigger_browser_reload
         calls = []
 
         try:
-            DjuleRenderer.clear_caches = classmethod(lambda cls: calls.append("cleared"))
+            DjuleRenderer.invalidate_path_caches = classmethod(lambda cls, path: calls.append(path))
             django_integration.trigger_browser_reload = lambda: calls.append("reloaded") or True
-            handled = handle_djule_file_change(ROOT / "examples" / "simple_page_01.djule", settings_obj=settings_obj)
+            changed_path = ROOT / "examples" / "simple_page_01.djule"
+            handled = handle_djule_file_change(changed_path, settings_obj=settings_obj)
         finally:
-            DjuleRenderer.clear_caches = original_clear_caches
+            DjuleRenderer.invalidate_path_caches = original_invalidate
             django_integration.trigger_browser_reload = original_trigger_browser_reload
 
         self.assertTrue(handled)
-        self.assertEqual(calls, ["cleared", "reloaded"])
+        self.assertEqual(calls, [changed_path.resolve(), "reloaded"])
 
     def test_handle_djule_file_change_ignores_non_djule_files(self):
         settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[str(ROOT)])
@@ -350,6 +362,152 @@ class DjangoIntegrationTests(unittest.TestCase):
             )
 
         self.assertEqual(html, "<main>hello</main>")
+
+    def test_render_djule_reuses_cached_plan_on_repeated_requests(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            template_path = Path(tmp_dir) / "page.djule"
+            template_path.write_text(
+                """def Page():
+    return (
+        <main>Hello</main>
+    )
+"""
+            )
+            settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[tmp_dir], DEBUG=True)
+
+            original_ensure = django_integration.ensure_djule_autoreload
+            from djule.compiler import DjuleRenderer
+            from djule.compiler.cache_support import DjuleCacheMixin
+
+            original_compile = DjuleRenderer._compile_entry_plan
+            original_dependency_check = DjuleCacheMixin.__dict__["_dependencies_are_current"]
+            try:
+                django_integration.ensure_djule_autoreload = lambda **kwargs: True
+                first_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+                DjuleRenderer._compile_entry_plan = lambda self, component_name: (_ for _ in ()).throw(
+                    AssertionError("cached render plan should be reused")
+                )
+                DjuleRenderer._dependencies_are_current = staticmethod(
+                    lambda dependencies: (_ for _ in ()).throw(
+                        AssertionError("cached page should not be revalidated after first trust")
+                    )
+                )
+                second_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+            finally:
+                django_integration.ensure_djule_autoreload = original_ensure
+                DjuleRenderer._compile_entry_plan = original_compile
+                DjuleRenderer._dependencies_are_current = original_dependency_check
+
+        self.assertEqual(first_html, "<main>Hello</main>")
+        self.assertEqual(second_html, "<main>Hello</main>")
+
+    def test_render_djule_rebuilds_after_djule_file_change_invalidates_cache(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            template_path = Path(tmp_dir) / "page.djule"
+            template_path.write_text(
+                """def Page():
+    return (
+        <main>old</main>
+    )
+"""
+            )
+            settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[tmp_dir], DEBUG=True)
+
+            original_ensure = django_integration.ensure_djule_autoreload
+            try:
+                django_integration.ensure_djule_autoreload = lambda **kwargs: True
+                first_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+                template_path.write_text(
+                    """def Page():
+    return (
+        <main>new</main>
+    )
+"""
+                )
+                handled = handle_djule_file_change(template_path, settings_obj=settings_obj)
+                second_html = render_djule(
+                    request=None,
+                    template_name="page.djule",
+                    settings_obj=settings_obj,
+                )
+            finally:
+                django_integration.ensure_djule_autoreload = original_ensure
+
+        self.assertEqual(first_html, "<main>old</main>")
+        self.assertTrue(handled)
+        self.assertEqual(second_html, "<main>new</main>")
+
+    def test_handle_djule_file_change_invalidates_only_affected_pages(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            settings_obj = SimpleNamespace(DJULE_IMPORT_ROOTS=[tmp_dir], DEBUG=True)
+            components_dir = Path(tmp_dir) / "components"
+            components_dir.mkdir()
+            shared_path = components_dir / "Shared.djule"
+            shared_path.write_text(
+                """def Shared():
+    return (
+        <span>shared</span>
+    )
+"""
+            )
+            page_a_path = Path(tmp_dir) / "page_a.djule"
+            page_a_path.write_text(
+                """from components.Shared import Shared
+
+def Page():
+    return (
+        <main><Shared></Shared></main>
+    )
+"""
+            )
+            page_b_path = Path(tmp_dir) / "page_b.djule"
+            page_b_path.write_text(
+                """def Page():
+    return (
+        <aside>independent</aside>
+    )
+"""
+            )
+
+            from djule.compiler import DjuleRenderer
+            original_ensure = django_integration.ensure_djule_autoreload
+            try:
+                django_integration.ensure_djule_autoreload = lambda **kwargs: True
+                html_a = render_djule(
+                    request=None,
+                    template_name="page_a.djule",
+                    settings_obj=settings_obj,
+                )
+                html_b = render_djule(
+                    request=None,
+                    template_name="page_b.djule",
+                    settings_obj=settings_obj,
+                )
+                page_a_cache_path = DjuleRenderer._plan_cache_path(page_a_path.resolve(), "Page")
+                page_b_cache_path = DjuleRenderer._plan_cache_path(page_b_path.resolve(), "Page")
+                self.assertTrue(page_a_cache_path.exists())
+                self.assertTrue(page_b_cache_path.exists())
+                handled = handle_djule_file_change(shared_path, settings_obj=settings_obj)
+            finally:
+                django_integration.ensure_djule_autoreload = original_ensure
+
+            self.assertEqual(html_a, "<main><span>shared</span></main>")
+            self.assertEqual(html_b, "<aside>independent</aside>")
+            self.assertTrue(handled)
+            self.assertFalse(page_a_cache_path.exists())
+            self.assertTrue(page_b_cache_path.exists())
 
     @unittest.skipUnless(importlib.util.find_spec("django") is not None, "Django is not installed")
     def test_get_djule_template_tag_builtins_discovers_global_simple_tags(self):

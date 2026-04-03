@@ -86,10 +86,15 @@ class DjuleCacheMixin:
 
     @classmethod
     def clear_caches(cls) -> None:
-        """Clear all in-memory module, expression, and entry-plan caches."""
+        """Clear all in-memory caches and the on-disk Djule cache tree."""
         cls._parsed_module_cache.clear()
         cls._compiled_expr_cache.clear()
         cls._entry_plan_cache.clear()
+        cls._trusted_module_cache_paths.clear()
+        cls._trusted_entry_plan_cache_keys.clear()
+        cache_root = Path(os.environ.get("DJULE_CACHE_DIR", ".djule-cache")).resolve()
+        if cache_root.exists():
+            shutil.rmtree(cache_root, ignore_errors=True)
 
     @classmethod
     def cache_stats(cls) -> dict[str, int]:
@@ -102,28 +107,43 @@ class DjuleCacheMixin:
 
     @classmethod
     def _load_cached_module(cls, path: Path) -> Module:
-        """Load a parsed module from memory, disk cache, or source file in that order."""
+        """Load a parsed module, validating one cached entry at most once per process."""
         resolved_path = path.resolve()
-        stat = resolved_path.stat()
         cache_entry = cls._parsed_module_cache.get(resolved_path)
+        if cache_entry is not None and resolved_path in cls._trusted_module_cache_paths:
+            return cache_entry[2]
+
+        stat = resolved_path.stat()
         if cache_entry is not None:
             cached_mtime_ns, cached_size, cached_module = cache_entry
             if cached_mtime_ns == stat.st_mtime_ns and cached_size == stat.st_size:
+                cls._trusted_module_cache_paths.add(resolved_path)
                 return cached_module
+            cls._parsed_module_cache.pop(resolved_path, None)
+            cls._trusted_module_cache_paths.discard(resolved_path)
 
-        disk_cached_module = cls._load_disk_cached_module(resolved_path, stat)
+        if resolved_path in cls._trusted_module_cache_paths:
+            disk_cached_module = cls._load_disk_cached_module(resolved_path, stat_result=None)
+            if disk_cached_module is not None:
+                cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, disk_cached_module)
+                return disk_cached_module
+            cls._trusted_module_cache_paths.discard(resolved_path)
+
+        disk_cached_module = cls._load_disk_cached_module(resolved_path, stat_result=stat)
         if disk_cached_module is not None:
             cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, disk_cached_module)
+            cls._trusted_module_cache_paths.add(resolved_path)
             return disk_cached_module
 
         module = DjuleParser.from_file(resolved_path).parse()
         cls._parsed_module_cache[resolved_path] = (stat.st_mtime_ns, stat.st_size, module)
+        cls._trusted_module_cache_paths.add(resolved_path)
         cls._write_disk_cached_module(resolved_path, stat, module)
         return module
 
     @classmethod
     def _cache_root(cls) -> Path:
-        """Return the cache root directory, creating the expected layout if needed."""
+        """Return the Djule cache root directory, creating the expected layout if needed."""
         cache_root = Path(os.environ.get("DJULE_CACHE_DIR", ".djule-cache")).resolve()
         cls._ensure_cache_layout(cache_root)
         (cache_root / "modules").mkdir(parents=True, exist_ok=True)
@@ -147,7 +167,7 @@ class DjuleCacheMixin:
             except (OSError, json.JSONDecodeError):
                 pass
 
-        for subdir in ("static", "manifests", "plans"):
+        for subdir in ("modules", "plans", "static", "manifests"):
             target = cache_root / subdir
             if target.exists():
                 shutil.rmtree(target, ignore_errors=True)
@@ -171,8 +191,8 @@ class DjuleCacheMixin:
         return cls._cache_root() / "plans" / f"{digest}.json"
 
     @classmethod
-    def _load_disk_cached_module(cls, path: Path, stat_result: os.stat_result) -> Module | None:
-        """Load a parsed module from disk cache if metadata and payload still match."""
+    def _load_disk_cached_module(cls, path: Path, *, stat_result: os.stat_result | None) -> Module | None:
+        """Load a parsed module from disk cache if one exists and is still current."""
         cache_path = cls._module_cache_path(path)
         if not cache_path.exists():
             return None
@@ -184,7 +204,9 @@ class DjuleCacheMixin:
 
         if payload.get("source_path") != str(path):
             return None
-        if payload.get("mtime_ns") != stat_result.st_mtime_ns or payload.get("size") != stat_result.st_size:
+        if stat_result is not None and (
+            payload.get("mtime_ns") != stat_result.st_mtime_ns or payload.get("size") != stat_result.st_size
+        ):
             return None
 
         module_data = payload.get("module")
@@ -302,13 +324,20 @@ class DjuleCacheMixin:
                 return False
         return True
 
-    def _load_cached_entry_plan(self, path: Path, component_name: str) -> ComponentPlan:
-        """Load a compiled entry plan from memory, disk, or by compiling it fresh."""
+    def _load_cached_entry_plan(
+        self,
+        path: Path,
+        component_name: str,
+    ) -> ComponentPlan:
+        """Load a compiled entry plan, validating one cached entry at most once per process."""
         resolved_path = path.resolve()
-        stat = resolved_path.stat()
 
         cache_key = (resolved_path, component_name)
         cache_entry = self._entry_plan_cache.get(cache_key)
+        if cache_entry is not None and cache_key in self._trusted_entry_plan_cache_keys:
+            return cache_entry[2]
+
+        stat = resolved_path.stat()
         if cache_entry is not None:
             cached_mtime_ns, cached_size, cached_plan, cached_deps = cache_entry
             if (
@@ -316,16 +345,29 @@ class DjuleCacheMixin:
                 and cached_size == stat.st_size
                 and self._dependencies_are_current(cached_deps)
             ):
+                self._trusted_entry_plan_cache_keys.add(cache_key)
                 return cached_plan
+            self._entry_plan_cache.pop(cache_key, None)
+            self._trusted_entry_plan_cache_keys.discard(cache_key)
 
-        disk_cached = self._load_disk_cached_entry_plan(resolved_path, component_name, stat)
+        if cache_key in self._trusted_entry_plan_cache_keys:
+            disk_cached = self._load_disk_cached_entry_plan(resolved_path, component_name, stat_result=None)
+            if disk_cached is not None:
+                plan, dependencies = disk_cached
+                self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
+                return plan
+            self._trusted_entry_plan_cache_keys.discard(cache_key)
+
+        disk_cached = self._load_disk_cached_entry_plan(resolved_path, component_name, stat_result=stat)
         if disk_cached is not None:
             plan, dependencies = disk_cached
             self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
+            self._trusted_entry_plan_cache_keys.add(cache_key)
             return plan
 
         plan, dependencies = self._compile_entry_plan(component_name)
         self._entry_plan_cache[cache_key] = (stat.st_mtime_ns, stat.st_size, plan, dependencies)
+        self._trusted_entry_plan_cache_keys.add(cache_key)
         self._write_disk_cached_entry_plan(resolved_path, component_name, stat, plan, dependencies)
         return plan
 
@@ -334,9 +376,10 @@ class DjuleCacheMixin:
         cls,
         path: Path,
         component_name: str,
-        stat_result: os.stat_result,
+        *,
+        stat_result: os.stat_result | None,
     ) -> tuple[ComponentPlan, tuple[tuple[str, int, int], ...]] | None:
-        """Load an entry render plan from disk if source and dependency data still match."""
+        """Load an entry render plan from disk when one exists for this source path and component."""
         cache_path = cls._plan_cache_path(path, component_name)
         if not cache_path.exists():
             return None
@@ -350,7 +393,9 @@ class DjuleCacheMixin:
             return None
         if payload.get("component_name") != component_name:
             return None
-        if payload.get("mtime_ns") != stat_result.st_mtime_ns or payload.get("size") != stat_result.st_size:
+        if stat_result is not None and (
+            payload.get("mtime_ns") != stat_result.st_mtime_ns or payload.get("size") != stat_result.st_size
+        ):
             return None
 
         deps_raw = payload.get("dependencies")
@@ -369,9 +414,8 @@ class DjuleCacheMixin:
             dependencies.append((item["path"], item["mtime_ns"], item["size"]))
 
         dependency_tuple = tuple(dependencies)
-        if not cls._dependencies_are_current(dependency_tuple):
+        if stat_result is not None and not cls._dependencies_are_current(dependency_tuple):
             return None
-
         plan_raw = payload.get("plan")
         if not isinstance(plan_raw, dict):
             return None
@@ -423,6 +467,53 @@ class DjuleCacheMixin:
         finally:
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
+
+    @classmethod
+    def invalidate_path_caches(cls, path: Path) -> set[tuple[Path, str]]:
+        """Invalidate one changed source path and any cached page plans that depend on it."""
+        resolved_path = path.resolve()
+        invalidated_entry_keys: set[tuple[Path, str]] = set()
+
+        cls._parsed_module_cache.pop(resolved_path, None)
+        cls._trusted_module_cache_paths.discard(resolved_path)
+        module_cache_path = cls._module_cache_path(resolved_path)
+        if module_cache_path.exists():
+            module_cache_path.unlink(missing_ok=True)
+
+        for cache_key, (_mtime_ns, _size, _plan, dependencies) in list(cls._entry_plan_cache.items()):
+            source_path, _component_name = cache_key
+            dependency_paths = {Path(dep_path).resolve() for dep_path, _dep_mtime, _dep_size in dependencies}
+            if source_path == resolved_path or resolved_path in dependency_paths:
+                invalidated_entry_keys.add(cache_key)
+
+        plans_dir = cls._cache_root() / "plans"
+        for cache_path in plans_dir.glob("*.json"):
+            try:
+                payload = json.loads(cache_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            source_path_raw = payload.get("source_path")
+            component_name = payload.get("component_name")
+            dependencies = payload.get("dependencies")
+            if not isinstance(source_path_raw, str) or not isinstance(component_name, str) or not isinstance(dependencies, list):
+                continue
+
+            dependency_paths: set[Path] = set()
+            for item in dependencies:
+                if isinstance(item, dict) and isinstance(item.get("path"), str):
+                    dependency_paths.add(Path(item["path"]).resolve())
+
+            source_path = Path(source_path_raw).resolve()
+            if source_path == resolved_path or resolved_path in dependency_paths:
+                invalidated_entry_keys.add((source_path, component_name))
+                cache_path.unlink(missing_ok=True)
+
+        for cache_key in invalidated_entry_keys:
+            cls._entry_plan_cache.pop(cache_key, None)
+            cls._trusted_entry_plan_cache_keys.discard(cache_key)
+
+        return invalidated_entry_keys
 
 
 _CACHED_NODE_TYPES = {
